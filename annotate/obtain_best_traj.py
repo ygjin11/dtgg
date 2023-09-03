@@ -2,11 +2,14 @@ import numpy as np
 import random
 # our package
 from fixed_replay_buffer import FixedReplayBuffer
-from utils import sample, Params
+from utils import sample
 import os
 import cv2
 from PIL import Image
 import json
+import sys
+import argparse
+
 
 # get best trajectory
 def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer):
@@ -32,7 +35,7 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
         # choose one from 50 buffers 
         buffer_num = np.random.choice(np.arange(50 - num_buffers, 50), 1)[0]
         i = transitions_per_buffer[buffer_num]
-        # print('loading from buffer %d which has %d already loaded' % (buffer_num, i))
+        print('loading from buffer %d which has %d already loaded' % (buffer_num, i))
 
         # load i buffer
         frb = FixedReplayBuffer(
@@ -52,7 +55,6 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
             trajectories_to_load = trajectories_per_buffer
 
             while not done:
-                # get one trastion
                 states, ac, ret, next_states, next_action, next_reward, terminal, indices = frb.sample_transition_batch(batch_size=1, indices=[i])
                 states = states.transpose((0, 3, 1, 2))[0] # (1, 84, 84, 4) --> (4, 84, 84)
                 obss += [states]
@@ -76,7 +78,6 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
                     done = True
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
-        # print('this buffer has %d loaded transitions and there are now %d transitions total divided into %d trajectories' % (i, len(obss), num_trajectories))
 
     actions = np.array(actions)
     returns = np.array(returns)
@@ -93,7 +94,6 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
             rtg_j = curr_traj_returns[j-start_index:i-start_index]
             rtg[j] = sum(rtg_j)
         start_index = i
-    # print('max rtg is %d' % max(rtg))
 
     # -- create timestep dataset
     start_index = 0
@@ -102,7 +102,7 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
         i = int(i)
         timesteps[start_index:i+1] = np.arange(i+1 - start_index)
         start_index = i+1
-    # print('max timestep is %d' % max(timesteps))
+
 
     max_rtg_index = np.argsort(rtg)[-1]
     max_indices = np.where(rtg == rtg[max_rtg_index])[0]  
@@ -139,22 +139,24 @@ def find_change_points(sequence):
 
 # get little segments
 def get_segment_traj(obss, actions, rtg, num_segment):
-    index_change = find_change_points(rtg)
-    if len(index_change) > 10:
-        index_change = random.sample(index_change, num_segment)
     
-    segment_all_traj = []
-    segment_all_action = []
-    segment_all_rtg = []
-    for i in range(len(index_change)):
-        segment_traj = []
-        segment_action = []
-        segment_rtg = []
-        start = index_change[i] - 15
-        end = index_change[i] + 15
-        segment_traj = obss[start:end]
-        segment_action = actions[start:end]
-        segment_rtg = rtg[start:end]
+    segment_all_traj, segment_all_action, segment_all_rtg = [], [], []
+    point_pair = []
+    for i in range(len(index_change)-1):
+        pair = []
+        pair.append(index_change[i])
+        pair.append(index_change[i+1])
+        point_pair.append(pair)
+    
+    randome_pair = random.sample(point_pair, num_segment)
+
+    for i in range(len(randome_pair)):
+        start = randome_pair[i][0]
+        end = randome_pair[i][1]
+
+        segment_traj, segment_action, segment_rtg = []
+        segment_traj, segment_action, egment_rtg  = obss[start:end], actions[start:end], rtg[start:end]
+
         segment_all_traj.append(segment_traj)
         segment_all_action.append(segment_action)
         segment_all_rtg.append(segment_rtg)
@@ -162,13 +164,13 @@ def get_segment_traj(obss, actions, rtg, num_segment):
 
     return segment_all_traj, segment_all_action, segment_all_rtg
 
+# save video and frame
 def get_video_frame(dir, segment_traj):
     for i in range(len(segment_traj)):
         segment = segment_traj[i]
         frames = []
         for state in segment:
-            frames.append
-            (state[0])
+            frames.append(state[0])
         
         # save ivdeo
         video_dir = dir + 'video/'
@@ -191,39 +193,55 @@ def get_video_frame(dir, segment_traj):
 
         video.release()
 
+# save action and rtg
 def get_action_rtg(dir, segment_action, segment_rtg):
 
-    root_dir = dir + 'action_rtg/'
-    if not os.path.exists(root_dir):
-        os.makedirs(root_dir)
+    root_action_dir = dir + 'action'
+    root_rtg_dir = dir + 'rtg'
+
+    if not os.path.exists(root_action_dir):
+        os.makedirs(root_action_dir)
+    if not os.path.exists(root_rtg_dir):
+        os.makedirs(root_rtg_dir)
 
     for i in range(len(segment_action)):
         segment_action_i = segment_action[i]
         segment_rtg_i = segment_rtg[i]
-        Dict = dict()
+        Dict_action = dict()
+        Dict_rtg = dict()
         for j in range(len(segment_action_i)):
-            Dict[j] = {'action': int(segment_action_i[j]), 'rtg': int(segment_rtg_i[j])}
-        with open(root_dir+str(i)+'.json','w') as file:
-            json.dump(Dict, file)    
+            Dict_action[j] = int(segment_action_i[j])
+            Dict_rtg[j] = int(segment_rtg_i[j])
+        with open(root_action_dir+str(i)+'.json','w') as file:
+            json.dump(Dict_action, file)    
+        with open(root_rtg_dir+str(i)+'.json','w') as file:
+            json.dump(Dict_rtg, file)  
 
 if __name__ == '__main__': 
 
-    num_steps = 500000
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--game', type=str, default='AirRaid')
+    parser.add_argument('--input', type=str, default='/home/vcis11/userlist/jinyg/dt-with-multiInst/data/dqn')
+    parser.add_argument('--output', type=str, default='/home/vcis11/userlist/jinyg/dt-with-multiInst/instruct')
+    parser.add_argument('--num_traj', type=int, default=10)
+    args = parser.parse_args()
+
+    num_steps = 5000
     num_buffers = 50
     trajectories_per_buffer = 10
-    game = 'AirRaid'
-    data_dir_prefix = '/home/jinyg/cp_file/jinyg/DT-with-MultiInst/data/dqn/'
-    dir = '/home/jinyg/cp_file/jinyg/DT-with-MultiInst/Instruct/' + game + '/'
-    num_segment = 10
+
+    game = args.game
+    data_dir_prefix = args.input
+    out_putdir = args.output + args.game + '/'
+    num_segment = args.num_traj
 
     obss, actions, returns, done_idxs, rtg, timesteps = obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer)
     
-    if not os.path.exists(dir):
-        os.makedirs(dir)
+    if not os.path.exists(out_putdir):
+        os.makedirs(out_putdir)
     segment_traj, segment_action, segment_rtg  = get_segment_traj(obss, actions, rtg, num_segment)
-
-    get_video_frame(dir, segment_traj)
-    get_action_rtg(dir, segment_action, segment_rtg)
+    get_video_frame(out_putdir, segment_traj)
+    get_action_rtg(out_putdir, segment_action, segment_rtg)
 
 
                                                                   
