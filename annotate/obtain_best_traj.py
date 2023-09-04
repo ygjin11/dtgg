@@ -9,7 +9,7 @@ from PIL import Image
 import json
 import sys
 import argparse
-
+import yaml
 
 # get best trajectory
 def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer):
@@ -35,7 +35,6 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
         # choose one from 50 buffers 
         buffer_num = np.random.choice(np.arange(50 - num_buffers, 50), 1)[0]
         i = transitions_per_buffer[buffer_num]
-        print('loading from buffer %d which has %d already loaded' % (buffer_num, i))
 
         # load i buffer
         frb = FixedReplayBuffer(
@@ -140,6 +139,7 @@ def find_change_points(sequence):
 # get little segments
 def get_segment_traj(obss, actions, rtg, num_segment):
     
+    index_change =  find_change_points(rtg)
     segment_all_traj, segment_all_action, segment_all_rtg = [], [], []
     point_pair = []
     for i in range(len(index_change)-1):
@@ -148,19 +148,20 @@ def get_segment_traj(obss, actions, rtg, num_segment):
         pair.append(index_change[i+1])
         point_pair.append(pair)
     
-    randome_pair = random.sample(point_pair, num_segment)
+    random_pair = random.sample(point_pair, num_segment)
+    for i in range(len(random_pair)):
+        start = random_pair[i][0]
+        end = random_pair[i][1]
+        if end-start < 20:
+            start  = 20 - (end-start)
+        if end-start > 20:
+            start = end - 20
 
-    for i in range(len(randome_pair)):
-        start = randome_pair[i][0]
-        end = randome_pair[i][1]
-
-        segment_traj, segment_action, segment_rtg = []
-        segment_traj, segment_action, egment_rtg  = obss[start:end], actions[start:end], rtg[start:end]
+        segment_traj, segment_action, segment_rtg  = obss[start:end], actions[start:end], rtg[start:end]
 
         segment_all_traj.append(segment_traj)
         segment_all_action.append(segment_action)
         segment_all_rtg.append(segment_rtg)
-
 
     return segment_all_traj, segment_all_action, segment_all_rtg
 
@@ -182,7 +183,6 @@ def get_video_frame(dir, segment_traj):
             video.write(frame)
         
         # save picture
-        
         frame_dir = dir + 'frame/' + str(i) + '/'
         if not os.path.exists(frame_dir):
             os.makedirs(frame_dir)
@@ -196,8 +196,8 @@ def get_video_frame(dir, segment_traj):
 # save action and rtg
 def get_action_rtg(dir, segment_action, segment_rtg):
 
-    root_action_dir = dir + 'action'
-    root_rtg_dir = dir + 'rtg'
+    root_action_dir = dir + 'action/'
+    root_rtg_dir = dir + 'rtg/'
 
     if not os.path.exists(root_action_dir):
         os.makedirs(root_action_dir)
@@ -219,24 +219,24 @@ def get_action_rtg(dir, segment_action, segment_rtg):
 
 if __name__ == '__main__': 
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--game', type=str, default='AirRaid')
-    parser.add_argument('--input', type=str, default='/home/vcis11/userlist/jinyg/dt-with-multiInst/data/dqn')
-    parser.add_argument('--output', type=str, default='/home/vcis11/userlist/jinyg/dt-with-multiInst/instruct')
-    parser.add_argument('--num_traj', type=int, default=10)
-    args = parser.parse_args()
+    current_file = os.path.abspath(__file__)
+    current_directory = os.path.dirname(current_file)
+    parent_directory = os.path.dirname(current_directory)
+    config_path = parent_directory + '/config/config_para/para.yaml'
 
-    num_steps = 5000
+    with open(config_path, 'r') as yaml_file:
+        config = yaml.safe_load(yaml_file)
+
+    game = config['game_annonate']
+    data_dir_prefix = config['dataset_dir'] 
+    out_putdir = config['instruct_dir'] + game + '/'
+    num_segment = config['traj_num']
+
+    num_steps = 1000000
     num_buffers = 50
-    trajectories_per_buffer = 10
-
-    game = args.game
-    data_dir_prefix = args.input
-    out_putdir = args.output + args.game + '/'
-    num_segment = args.num_traj
+    trajectories_per_buffer = 20
 
     obss, actions, returns, done_idxs, rtg, timesteps = obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer)
-    
     if not os.path.exists(out_putdir):
         os.makedirs(out_putdir)
     segment_traj, segment_action, segment_rtg  = get_segment_traj(obss, actions, rtg, num_segment)

@@ -1,28 +1,21 @@
-import csv
-import logging
-# make deterministic
-from mingpt.utils import set_seed
 import numpy as np
-import torch
-import torch.nn as nn
-from torch.nn import functional as F
-import math
-from torch.utils.data import Dataset
-from mingpt.model_atari import GPT, GPTConfig
-from mingpt.trainer_atari import Trainer, TrainerConfig
-from mingpt.utils import sample
-from collections import deque
 import random
-import torch
-import pickle
-import blosc
-import argparse
+# our package
 from fixed_replay_buffer import FixedReplayBuffer
+from utils import sample
+import os
+import cv2
+from PIL import Image
 
-def create_dataset(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer):
-    
-
-def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer):
+# get dataset of one game
+# obss
+# actions
+# returns
+# done_idxs
+# rtg
+# timesteps
+# game
+def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_per_buffer):
     # -- load data from memory (make more efficient)
     obss = []
     actions = []
@@ -31,14 +24,25 @@ def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectori
     stepwise_returns = []
     game = []
 
+    game_num = len(games)
+    index = 0
+
+    num_steps = num_steps * game_num
+
     transitions_per_buffer = np.zeros(50, dtype=int)
     num_trajectories = 0
     while len(obss) < num_steps:
         buffer_num = np.random.choice(np.arange(50 - num_buffers, 50), 1)[0]
         i = transitions_per_buffer[buffer_num]
-        print('loading from buffer %d which has %d already loaded' % (buffer_num, i))
+
+        Game = games[index]
+        print(f'#########################get dataset of {Game} {Game} {Game} {Game}#########################')
+        index = index + 1
+        if index == game_num:
+            index = 0
+        
         frb = FixedReplayBuffer(
-            data_dir=data_dir_prefix + game + '/1/replay_logs',
+            data_dir=data_dir_prefix + Game + '/1/replay_logs',
             replay_suffix=buffer_num,
             observation_shape=(84, 84),
             stack_size=4,
@@ -47,6 +51,7 @@ def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectori
             observation_dtype=np.uint8,
             batch_size=32,
             replay_capacity=100000)
+        
         if frb._loaded_buffers:
             done = False
             curr_num_transitions = len(obss)
@@ -55,6 +60,7 @@ def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectori
                 states, ac, ret, next_states, next_action, next_reward, terminal, indices = frb.sample_transition_batch(batch_size=1, indices=[i])
                 states = states.transpose((0, 3, 1, 2))[0] # (1, 84, 84, 4) --> (4, 84, 84)
                 obss += [states]
+                game += [Game]
                 actions += [ac[0]]
                 stepwise_returns += [ret[0]]
                 if terminal[0]:
@@ -75,7 +81,6 @@ def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectori
                     done = True
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
-        print('this buffer has %d loaded transitions and there are now %d transitions total divided into %d trajectories' % (i, len(obss), num_trajectories))
 
     actions = np.array(actions)
     returns = np.array(returns)
@@ -92,7 +97,6 @@ def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectori
             rtg_j = curr_traj_returns[j-start_index:i-start_index]
             rtg[j] = sum(rtg_j)
         start_index = i
-    print('max rtg is %d' % max(rtg))
 
     # -- create timestep dataset
     start_index = 0
@@ -101,6 +105,14 @@ def create_dataset_one(num_buffers, num_steps, game, data_dir_prefix, trajectori
         i = int(i)
         timesteps[start_index:i+1] = np.arange(i+1 - start_index)
         start_index = i+1
-    print('max timestep is %d' % max(timesteps))
 
-    return obss, actions, returns, done_idxs, rtg, timesteps
+    return obss, actions, returns, done_idxs, rtg, timesteps, game
+
+if __name__ == '__main__': 
+
+    games = ['AirRaid', 'AirRaid', 'AirRaid']
+    num_steps = 50000
+    num_buffers = 50
+    trajectories_per_buffer = 20
+    data_dir_prefix = 'data/'
+    obss, actions, returns, done_idxs, rtg, timesteps, game = create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_per_buffer)
