@@ -18,7 +18,7 @@ import pickle
 import blosc
 import argparse
 from create_dataset import create_dataset
-from clip_encoder.clip_extract_lang import get_language_clip
+from tool.clip_extract_lang import get_language_clip
 import os
 import yaml
 
@@ -91,8 +91,8 @@ if __name__ == '__main__':
     instruction_type = config['instruction_type']
     game_list = config['game_list']
     ckpt_path = config['ckpt_path']
-
     game_path = parent_directory + '/config/config_game/' + game_list + '.yaml'
+
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
     game_list = config_game['train']
@@ -107,6 +107,15 @@ if __name__ == '__main__':
     )
     dataset = StateActionReturnDataset(obss, context_length*3, actions, done_idxs, rtgs, timesteps, game, instruction_type, game_list)
 
+    config['action_space'] = int( max(actions)+1 )
+    config['max_timestep'] = int( max(timesteps) )
+
+    print(max(timesteps))
+
+    with open(config_path, 'w') as file:
+        yaml.dump(config, file)
+
+    # original DT training
     if instruction_type == 'raw':
         mconf = GPTConfig(dataset.vocab_size, dataset.block_size,
                         n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max(timesteps))
@@ -123,7 +132,7 @@ if __name__ == '__main__':
     
         trainer = Trainer(model, train_dataset, test_dataset, tconf, 'raw')
         trainer.train()
-
+    
+    # task conditioned training
     else:
-        # TODO task conditioned training
         pass

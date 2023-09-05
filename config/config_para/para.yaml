@@ -1,22 +1,18 @@
-# public
-dataset_dir: '/scratch/vcis/project/dt-with-multiInst/data/'
-instruct_dir: '/scratch/vcis/project/dt-with-multiInst/instruct/'
-instruction_type: "raw" # raw languge trajectory instruction
-seed: 123
-model_type: 'reward_conditioned'
-game_list: "1"
-
-# annonate
-game_annonate: 'AirRaid'
-traj_num: 10
-
-# train
-num_buffers: 50
-num_steps: 5000 # 500000
-trajectories_per_buffer: 20
-context_length: 30
+action_space: 6
 batch_size: 128
-epochs: 5
-ckpt_path: '/scratch/vcis/project/dt-with-multiInst/checkpoint'
-
-# eval
+ckpt_path: /scratch/vcis/project/dt-with-multiInst/checkpoint
+context_length: 30
+dataset_dir: /scratch/vcis/project/dt-with-multiInst/data/
+epochs: 10
+ckpt_eval: /scratch/vcis/project/dt-with-multiInst/checkpoint/1.1288289222042118_raw.ckpt
+game_annonate: AirRaid
+game_list: '1'
+instruct_dir: /scratch/vcis/project/dt-with-multiInst/instruct/
+instruction_type: raw
+max_timestep: 4749
+model_type: reward_conditioned
+num_buffers: 50
+num_steps: 5000
+seed: 123
+traj_num: 10
+trajectories_per_buffer: 20

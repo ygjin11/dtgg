@@ -1,8 +1,8 @@
 import numpy as np
 import random
 # our package
-from fixed_replay_buffer import FixedReplayBuffer
-from utils import sample
+from offline.fixed_replay_buffer import FixedReplayBuffer
+from offline.utils import sample
 import os
 import cv2
 from PIL import Image

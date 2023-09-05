@@ -2,5 +2,5 @@ train:
   - "AirRaid"
   - "AirRaid"
 eval:
-  - "AirRaid"
-  - "AirRaid"
+  - "Air_Raid"
+  - "Air_Raid"
