@@ -110,10 +110,10 @@ class Env():
         cv2.destroyAllWindows()
 
 class Args:
-    def __init__(self, game, seed, max_episode_length):
+    def __init__(self, game, seed):
         self.device = torch.device('cuda')
         self.seed = seed
-        self.max_episode_length = max_episode_length
+        self.max_episode_length = 108e3
         self.game = game
         self.history_length = 4
 
