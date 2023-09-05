@@ -26,7 +26,7 @@ from torch.utils.data.dataloader import DataLoader
 
 logger = logging.getLogger(__name__)
 
-from mingpt.utils import sample
+from dt.utils import sample
 from collections import deque
 import random
 import cv2

@@ -21,3 +21,6 @@ ckpt_path: '/scratch/vcis/project/dt-with-multiInst/checkpoint'
 
 # eval
 ckpt_eval:
+max_timestep:
+action_space:
+eval_rtg:

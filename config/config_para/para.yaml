@@ -1,10 +1,11 @@
 action_space: 6
 batch_size: 128
+ckpt_eval: /scratch/vcis/project/dt-with-multiInst/checkpoint/1.1288289222042118_raw.ckpt
 ckpt_path: /scratch/vcis/project/dt-with-multiInst/checkpoint
 context_length: 30
 dataset_dir: /scratch/vcis/project/dt-with-multiInst/data/
 epochs: 10
-ckpt_eval: /scratch/vcis/project/dt-with-multiInst/checkpoint/1.1288289222042118_raw.ckpt
+eval_rtg: 500
 game_annonate: AirRaid
 game_list: '1'
 instruct_dir: /scratch/vcis/project/dt-with-multiInst/instruct/
@@ -12,7 +13,7 @@ instruction_type: raw
 max_timestep: 4749
 model_type: reward_conditioned
 num_buffers: 50
-num_steps: 5000
+num_steps: 500000
 seed: 123
 traj_num: 10
 trajectories_per_buffer: 20

@@ -3,4 +3,3 @@ train:
   - "AirRaid"
 eval:
   - "Air_Raid"
-  - "Air_Raid"

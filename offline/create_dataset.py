@@ -28,6 +28,7 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
     index = 0
 
     num_steps = num_steps * game_num
+    trajectories_per_buffer = trajectories_per_buffer * game_num
 
     transitions_per_buffer = np.zeros(50, dtype=int)
     num_trajectories = 0

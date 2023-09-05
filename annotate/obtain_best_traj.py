@@ -93,6 +93,7 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
             rtg_j = curr_traj_returns[j-start_index:i-start_index]
             rtg[j] = sum(rtg_j)
         start_index = i
+    print('max rtg is %d' % max(rtg))
 
     # -- create timestep dataset
     start_index = 0
@@ -101,6 +102,7 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
         i = int(i)
         timesteps[start_index:i+1] = np.arange(i+1 - start_index)
         start_index = i+1
+    print('max timestep is %d' % max(timesteps))
 
 
     max_rtg_index = np.argsort(rtg)[-1]

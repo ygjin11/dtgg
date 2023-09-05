@@ -6,11 +6,10 @@ import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.dataloader import DataLoader
-from mingpt.model_atari import GPT, GPTConfig
-from mingpt.trainer_atari import Trainer, TrainerConfig
-from mingpt.utils import sample
+from dt.model_dt import GPT, GPTConfig
+from dt.utils import sample
 logger = logging.getLogger(__name__)
-from mingpt.utils import sample
+from dt.utils import sample
 import atari_py
 from collections import deque
 import random
@@ -111,10 +110,10 @@ class Env():
         cv2.destroyAllWindows()
 
 class Args:
-    def __init__(self, game, seed):
+    def __init__(self, game, seed, max_episode_length):
         self.device = torch.device('cuda')
         self.seed = seed
-        self.max_episode_length = 108e3
+        self.max_episode_length = max_episode_length
         self.game = game
         self.history_length = 4
 
@@ -124,8 +123,8 @@ def interact_raw(ret, env, model, max_timestep):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    for i in range(10):
-        print(f"################## {i}/10 evaluation ##################")
+    num = 5
+    for i in range(num):
         state = env.reset()
         state = state.type(torch.float32).to(device).unsqueeze(0).unsqueeze(0)
         rtgs = [ret]
@@ -162,9 +161,12 @@ def interact_raw(ret, env, model, max_timestep):
                 rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
                 timesteps=(min(j, max_timestep) * torch.ones((1, 1, 1), dtype=torch.int64).to(device)))
     env.close()
-    eval_return = sum(T_rewards)/10.
+    eval_return = sum(T_rewards)/num
     print("target return: %d, eval return: %d" % (ret, eval_return))
     return eval_return
+
+def interact_condition(ret, env, model, max_timestep):
+    pass
 
 if __name__ == '__main__': 
     current_file = os.path.abspath(__file__)
@@ -190,26 +192,35 @@ if __name__ == '__main__':
     ckpt_eval = config['ckpt_eval']
     max_timestep = config['max_timestep']
     action_space = config['action_space']
+    eval_rtg = config['eval_rtg']
 
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
     game_list = config_game['eval']
 
     if instruction_type == 'raw':
+        
         # model config
         mconf = GPTConfig(action_space, context_length*3,
                           n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep)
         model = GPT(mconf)
+
         # laod ckpt
         model.train(False)
         state_dict = torch.load(ckpt_eval)
         model.load_state_dict(state_dict)
 
         for game in game_list:
-            args=Args(game.lower(), seed)
-            env = Env(args)
-            env.eval()
-            eval_return = interact_raw(0, env, model, max_timestep)
-            
+            num = 20
+            sum_retrun = 0
+            for i in range(num):
+                seed = seed + random.randint(0, 100)
+                args=Args(game.lower(), seed)
+                env = Env(args)
+                env.eval()
+                eval_return = interact_raw(eval_rtg, env, model, max_timestep)
+                sum_retrun += eval_return 
+                average_return = sum_retrun /num
+            print(f"average return of {game}: {average_return}")           
     else:
         pass
