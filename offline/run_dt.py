@@ -1,22 +1,19 @@
 import csv
 import logging
-# make deterministic
-from dt.utils import set_seed
 import numpy as np
+import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import math
 from torch.utils.data import Dataset,  random_split
-from dt.model_dt import GPT, GPTConfig
-from dt.trainer_dt import Trainer, TrainerConfig
-from dt.utils import sample
+
+from model.dt import GPT, GPTConfig
+from model.dt_condition import GPTConfig_condition, GPT_condition 
+from offline.trainer import Trainer, TrainerConfig
+
+from utils import sample
+from utils import set_seed
 from collections import deque
-import random
-import torch
-import pickle
-import blosc
-import argparse
 from create_dataset import create_dataset
 from tool.clip_extract_lang import get_language_clip
 import os
@@ -36,7 +33,7 @@ class StateActionReturnDataset(Dataset):
         self.game = game
         self.game_dict = dict()
         for i in range(len(game_list)):  
-            self.game_dict[game_list[i]] = get_language_clip(game_list[i])
+            self.game_dict[game_list[i]] = get_language_clip(game_list[i]).to('cpu')
         self.type = instruction_type
 
     def __len__(self):
@@ -61,8 +58,7 @@ class StateActionReturnDataset(Dataset):
         else:
             instruction = self.game[idx:done_idx]
             if self.type == 'language':
-                instruction =  [self.game_dict[item] for item in instruction] 
-                instruction = torch.cat(instruction, dim=0) # (block_size, 512)
+                instruction =  self.game_dict[instruction[0]].reshape(-1)  
             if self.type == 'trajectory':
                 pass        
             if self.type == 'instruction':
@@ -78,25 +74,28 @@ if __name__ == '__main__':
     config_path = parent_directory + '/config/config_para/para.yaml'
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
-        
-    seed = config['seed'] 
-    context_length = config['context_length'] 
-    epochs = config['epochs'] 
-    model_type = config['model_type']
-    num_steps = config['num_steps']
-    num_buffers = config['num_buffers']
-    batch_size = config['batch_size']
-    trajectories_per_buffer = config['trajectories_per_buffer']
+    
+    context_length = config['train']['context_length'] 
+    epochs = config['train']['epochs']
+    model_type = config['train']['model_type'] 
+    num_steps = config['train']['num_steps']
+    num_buffers = config['train']['num_buffers']
+    batch_size = config['train']['batch_size']
+    trajectories_per_buffer = config['train']['trajectories_per_buffer']
+    ckpt_path = config['train']['ckpt_path']
+
+
     data_dir_prefix = config['dataset_dir']
     instruction_type = config['instruction_type']
     game_list = config['game_list']
-    ckpt_path = config['ckpt_path']
     game_path = parent_directory + '/config/config_game/' + game_list + '.yaml'
+    condition_dim = config['condition_dim']
 
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
     game_list = config_game['train']
-        
+    
+    seed = config['seed'] 
     set_seed(seed)
 
     obss, actions, returns, done_idxs, rtgs, timesteps, game = create_dataset(num_buffers, num_steps, game_list, data_dir_prefix, trajectories_per_buffer)
@@ -106,12 +105,13 @@ if __name__ == '__main__':
             level=logging.INFO,
     )
     dataset = StateActionReturnDataset(obss, context_length*3, actions, done_idxs, rtgs, timesteps, game, instruction_type, game_list)
+    dataset_size = len(dataset)
+    train_size = int(0.8 * dataset_size)
+    test_size = dataset_size - train_size
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     config['action_space'] = int( max(actions)+1 )
     config['max_timestep'] = int( max(timesteps) )
-
-    print(max(timesteps))
-
     with open(config_path, 'w') as file:
         yaml.dump(config, file)
 
@@ -120,11 +120,6 @@ if __name__ == '__main__':
         mconf = GPTConfig(dataset.vocab_size, dataset.block_size,
                         n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max(timesteps))
         model = GPT(mconf)
-
-        dataset_size = len(dataset)
-        train_size = int(0.8 * dataset_size)
-        test_size = dataset_size - train_size
-        train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
         tconf = TrainerConfig(max_epochs=epochs, batch_size=batch_size, learning_rate=6e-4,
                             lr_decay=True, warmup_tokens=512*20, final_tokens=2*len(train_dataset)*context_length*3,
@@ -135,4 +130,12 @@ if __name__ == '__main__':
     
     # task conditioned training
     else:
-        pass
+        mconf = GPTConfig_condition(dataset.vocab_size, dataset.block_size,
+                        n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max(timesteps), embed_dim=condition_dim)
+        model = GPT_condition(mconf)
+
+        tconf = TrainerConfig(max_epochs=epochs, batch_size=batch_size, learning_rate=6e-4,
+                    lr_decay=True, warmup_tokens=512*20, final_tokens=2*len(train_dataset)*context_length*3,
+                    num_workers=4, seed=seed, model_type=model_type, game=game, max_timestep=max(timesteps), ckpt_path=ckpt_path)
+        trainer = Trainer(model, train_dataset, test_dataset, tconf, 'raw')
+        trainer.train()

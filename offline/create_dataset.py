@@ -28,7 +28,6 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
     index = 0
 
     num_steps = num_steps * game_num
-    trajectories_per_buffer = trajectories_per_buffer * game_num
 
     transitions_per_buffer = np.zeros(50, dtype=int)
     num_trajectories = 0
@@ -37,7 +36,7 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
         i = transitions_per_buffer[buffer_num]
 
         Game = games[index]
-        print(f'#########################get dataset of {Game} {Game} {Game} {Game}#########################')
+        print(f'===============get dataset of {Game} {Game} {Game} {Game}===============')
         index = index + 1
         if index == game_num:
             index = 0
@@ -82,6 +81,8 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
                     done = True
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
+
+        print(f"#########################load obss length: {len(obss)}#########################")
 
     actions = np.array(actions)
     returns = np.array(returns)
