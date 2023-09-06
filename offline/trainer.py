@@ -7,7 +7,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.dataloader import DataLoader
 logger = logging.getLogger(__name__)
-from utils import sample
+from tool.utils import sample
 from collections import deque
 import random
 import cv2
@@ -36,12 +36,13 @@ class TrainerConfig:
 
 class Trainer:
 
-    def __init__(self, model, train_dataset, test_dataset, config, itype):
+    def __init__(self, model, train_dataset, test_dataset, config, itype, game_list):
         self.model = model
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
         self.itype = itype
+        self.game_list = game_list
 
         # take over whatever gpus are on the system
         self.device = 'cpu'
@@ -53,7 +54,7 @@ class Trainer:
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
-        torch.save(raw_model.state_dict(), self.config.ckpt_path + '/' +  str(loss) + '_' + self.itype + '.ckpt')
+        torch.save(raw_model.state_dict(), self.config.ckpt_path + '/' +  str(round(loss,2)) + '_' + self.itype + '_' + self.game_list + '.ckpt')
 
     def train(self):
         model, config = self.model, self.config
@@ -155,10 +156,9 @@ class Trainer:
                         # report progress
                         pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
 
-                if not is_train:
-                    test_loss = float(np.mean(losses))
-                    logger.info("test loss: %f", test_loss)
-                    return test_loss
+            if not is_train:
+                test_loss = float(np.mean(losses))
+                return test_loss
     
         self.tokens = 0
 

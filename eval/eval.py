@@ -1,27 +1,21 @@
-import math
 import logging
-from tqdm import tqdm
-import numpy as np
 import torch
-import torch.optim as optim
-from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data.dataloader import DataLoader
-from dt.model_dt import GPT, GPTConfig
-from dt.utils import sample
+from tool.utils import sample
 logger = logging.getLogger(__name__)
-from dt.utils import sample
 import atari_py
 from collections import deque
 import random
 import cv2
 import torch
-from PIL import Image
 import yaml
 import os
-from offline.create_dataset import create_dataset
-
+from tool.clip_extract_lang import get_language_clip
+from model.dt import GPT, GPTConfig
+from model.dt_condition import GPTConfig_condition, GPT_condition 
+import pdb
 
 class Env():
+
     def __init__(self, args):
         self.device = args.device
         self.ale = atari_py.ALEInterface()
@@ -117,11 +111,20 @@ class Args:
         self.game = game
         self.history_length = 4
 
-def interact_raw(ret, env, model, max_timestep):
+def interact(ret, env, model, max_timestep, instruction_type, game):
     T_rewards, T_Qs = [], []
     done = True
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
+
+    # load instruction
+    game_embed = get_language_clip(game).to(device)
+
+    # load trajectory
+    # TODO
+
+    # load instruction
+    # TODO
 
     num = 5
     for i in range(num):
@@ -129,10 +132,21 @@ def interact_raw(ret, env, model, max_timestep):
         state = state.type(torch.float32).to(device).unsqueeze(0).unsqueeze(0)
         rtgs = [ret]
         # first state is from env, first rtg is target return, and first timestep is 0
-        sampled_action = sample(model, state, 1, temperature=1.0, sample=True, actions=None, 
-            rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
-            timesteps=torch.zeros((1, 1, 1), dtype=torch.int64).to(device))
-
+        if instruction_type == 'raw':
+            sampled_action = sample(model, state, 1, temperature=1.0, sample=True, actions=None, 
+                rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
+                timesteps=torch.zeros((1, 1, 1), dtype=torch.int64).to(device),
+                instruction=None)
+        else:
+            # laod instruction
+            if instruction_type == 'language':
+                instruction = game_embed
+            
+            sampled_action = sample(model, state, 1, temperature=1.0, sample=True, actions=None, 
+                rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
+                timesteps=torch.zeros((1, 1, 1), dtype=torch.int64).to(device),
+                instruction=instruction)  
+                     
         j = 0
         all_states = state
         actions = []
@@ -156,17 +170,26 @@ def interact_raw(ret, env, model, max_timestep):
             rtgs += [rtgs[-1] - reward]
             # all_states has all previous states and rtgs has all previous rtgs (will be cut to block_size in utils.sample)
             # timestep is just current timestep
-            sampled_action = sample(model, all_states.unsqueeze(0), 1, temperature=1.0, sample=True, 
-                actions=torch.tensor(actions, dtype=torch.long).to(device).unsqueeze(1).unsqueeze(0), 
-                rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
-                timesteps=(min(j, max_timestep) * torch.ones((1, 1, 1), dtype=torch.int64).to(device)))
+            if instruction_type == 'raw':
+                sampled_action = sample(model, all_states.unsqueeze(0), 1, temperature=1.0, sample=True, 
+                    actions=torch.tensor(actions, dtype=torch.long).to(device).unsqueeze(1).unsqueeze(0), 
+                    rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
+                    timesteps=(min(j, max_timestep) * torch.ones((1, 1, 1), dtype=torch.int64).to(device)))
+            else:
+                # laod instruction
+                if instruction_type == 'language':
+                    instruction = game_embed
+
+                sampled_action = sample(model, all_states.unsqueeze(0), 1, temperature=1.0, sample=True, 
+                    actions=torch.tensor(actions, dtype=torch.long).to(device).unsqueeze(1).unsqueeze(0), 
+                    rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
+                    timesteps=(min(j, max_timestep) * torch.ones((1, 1, 1), dtype=torch.int64).to(device)),
+                    instruction = instruction)
+
     env.close()
     eval_return = sum(T_rewards)/num
     print("target return: %d, eval return: %d" % (ret, eval_return))
     return eval_return
-
-def interact_condition(ret, env, model, max_timestep):
-    pass
 
 if __name__ == '__main__': 
     current_file = os.path.abspath(__file__)
@@ -177,50 +200,50 @@ if __name__ == '__main__':
         config = yaml.safe_load(yaml_file)
     
     seed = config['seed'] 
-    context_length = config['context_length'] 
-    epochs = config['epochs'] 
-    model_type = config['model_type']
-    num_steps = config['num_steps']
-    num_buffers = config['num_buffers']
-    batch_size = config['batch_size']
-    trajectories_per_buffer = config['trajectories_per_buffer']
-    data_dir_prefix = config['dataset_dir']
+    context_length = config['train']['context_length'] 
+    model_type = config['train']['model_type']
     instruction_type = config['instruction_type']
     game_list = config['game_list']
-    ckpt_path = config['ckpt_path']
     game_path = parent_directory + '/config/config_game/' + game_list + '.yaml'
-    ckpt_eval = config['ckpt_eval']
+    ckpt_eval = config['eval']['ckpt_eval']
     max_timestep = config['max_timestep']
     action_space = config['action_space']
-    eval_rtg = config['eval_rtg']
+    eval_rtg = config['eval']['eval_rtg']
+    condition_dim = config['condition_dim']
 
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
-    game_list = config_game['eval']
+    games = config_game['eval']
 
     if instruction_type == 'raw':
-        
         # model config
         mconf = GPTConfig(action_space, context_length*3,
                           n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep)
         model = GPT(mconf)
+         
+    elif instruction_type == 'language':
+        mconf = GPTConfig_condition(action_space, context_length*3,
+                n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep, embed_dim=condition_dim)
+        model = GPT_condition(mconf)
 
-        # laod ckpt
-        model.train(False)
-        state_dict = torch.load(ckpt_eval)
-        model.load_state_dict(state_dict)
+    # laod ckpt
+    print('@@@@@@@@@@@@@@@@@@@@@@@ load ckpt @@@@@@@@@@@@@@@@@@@@@@@')
+    model.train(False)
+    state_dict = torch.load(ckpt_eval)
+    model.load_state_dict(state_dict)
 
-        for game in game_list:
-            num = 20
-            sum_retrun = 0
-            for i in range(num):
-                seed = seed + random.randint(0, 100)
-                args=Args(game.lower(), seed)
-                env = Env(args)
-                env.eval()
-                eval_return = interact_raw(eval_rtg, env, model, max_timestep)
-                sum_retrun += eval_return 
-                average_return = sum_retrun /num
-            print(f"average return of {game}: {average_return}")           
-    else:
-        pass
+    # interact
+    print('@@@@@@@@@@@@@@@@@@@@@@@ eval @@@@@@@@@@@@@@@@@@@@@@@')
+    for game in games:
+        num = 20
+        sum_retrun = 0
+        for i in range(num):
+            print(f'@@@@@@@@@@@@@@@@@@@@@@@ eval {i} @@@@@@@@@@@@@@@@@@@@@@@')
+            seed = seed + random.randint(0, 100)
+            args=Args(game.lower(), seed)
+            env = Env(args)
+            env.eval()
+            eval_return = interact(eval_rtg, env, model, max_timestep, instruction_type, game)
+            sum_retrun += eval_return 
+            average_return = sum_retrun /num
+        print(f"average return of {game}: {average_return}")  

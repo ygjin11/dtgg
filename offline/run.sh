@@ -1,1 +1,1 @@
-python offline/run_dt.py
+python offline/train.py

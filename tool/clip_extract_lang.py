@@ -3,10 +3,8 @@ import clip
 
 def get_language_clip(game):
 
-    text_features = []
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model, process = clip.load("ViT-B/32", device=device)
-
 
     dir = 'instruct/' + game + '/language.txt'
     with open(dir, 'r') as file:

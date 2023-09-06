@@ -1,19 +1,21 @@
 action_space: 6
 annotate:
   game_annonate: AirRaid
-  traj_num: 10
+  traj_num: 20
 condition_dim: 512
 dataset_dir: /scratch/vcis/project/dt-with-multiInst/data/
 eval:
-  ckpt_eval: /scratch/vcis/project/dt-with-multiInst/checkpoint/1.1288289222042118_raw.ckpt
+  action_space: 6
+  ckpt_eval: /scratch/vcis/project/dt-with-multiInst/checkpoint/0.9_language_1.ckpt
   eval_rtg: 2000
+  max_timestep: 4749
 game_list: '1'
 instruct_dir: /scratch/vcis/project/dt-with-multiInst/instruct/
 instruction_type: language
-max_timestep: 4749
+max_timestep: 4955
 seed: 123
 train:
-  batch_size: 128
+  batch_size: 256
   ckpt_path: /scratch/vcis/project/dt-with-multiInst/checkpoint
   context_length: 30
   epochs: 5
