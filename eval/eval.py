@@ -102,7 +102,6 @@ class Env():
 
     def close(self):
         cv2.destroyAllWindows()
-
 class Args:
     def __init__(self, game, seed):
         self.device = torch.device('cuda')
@@ -199,7 +198,7 @@ if __name__ == '__main__':
     current_file = os.path.abspath(__file__)
     current_directory = os.path.dirname(current_file)
     parent_directory = os.path.dirname(current_directory)
-    config_path = parent_directory + '/config/config_para/para.yaml'
+    config_path = parent_directory + '/config/config_main/main.yaml'
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
     
