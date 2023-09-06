@@ -1,14 +1,11 @@
 import torch
 import clip
 
-def get_language_clip(game):
+def get_language_clip(Text):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model, process = clip.load("ViT-B/32", device=device)
 
-    dir = 'instruct/' + game + '/language.txt'
-    with open(dir, 'r') as file:
-        Text = file.read()
     text = clip.tokenize([Text]).to(device)
     with torch.no_grad():
         text_feature = model.encode_text(text)
