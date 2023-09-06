@@ -1,5 +1,4 @@
 train:
   - "AirRaid"
-  - "AirRaid"
 eval:
   - "Air_Raid"

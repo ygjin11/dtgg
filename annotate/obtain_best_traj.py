@@ -229,10 +229,10 @@ if __name__ == '__main__':
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
 
-    game = config['game_annonate']
+    game = config['annotate']['game_annonate']
     data_dir_prefix = config['dataset_dir'] 
     out_putdir = config['instruct_dir'] + game + '/'
-    num_segment = config['traj_num']
+    num_segment = config['annotate']['traj_num']
 
     num_steps = 1000000
     num_buffers = 50

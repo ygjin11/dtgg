@@ -13,7 +13,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import json
 
 def set_seed(seed):
     random.seed(seed)
@@ -61,5 +60,3 @@ def sample(model, x, steps, temperature=1.0, sample=False, top_k=None, actions=N
         x = ix
 
     return x
-
-
