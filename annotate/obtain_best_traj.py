@@ -77,6 +77,8 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
                     done = True
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
+        print('this buffer has %d loaded transitions and there are now %d transitions total divided into %d trajectories' % (i, len(obss), num_trajectories))
+
 
     actions = np.array(actions)
     returns = np.array(returns)
@@ -224,7 +226,7 @@ if __name__ == '__main__':
     current_file = os.path.abspath(__file__)
     current_directory = os.path.dirname(current_file)
     parent_directory = os.path.dirname(current_directory)
-    config_path = parent_directory + '/config/config_para/para.yaml'
+    config_path = parent_directory + '/config/config_main/main.yaml'
 
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)

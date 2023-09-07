@@ -19,6 +19,7 @@ from tool.clip_extract_lang import get_language_clip
 import os
 import yaml
 
+
 # dataset
 class StateActionReturnDataset(Dataset):
 
@@ -31,9 +32,19 @@ class StateActionReturnDataset(Dataset):
         self.rtgs = rtgs
         self.timesteps = timesteps
         self.game = game
+
+        # load text embedding
         self.game_dict = dict()
         for i in range(len(games)):  
-            self.game_dict[games[i]] = get_language_clip(games[i]).to('cpu')
+            dir = instruct_dir + games[i] + '/language.txt'
+            with open(dir, 'r') as file:
+                Text = file.read()
+            self.game_dict[games[i]] = get_language_clip(Text).to('cpu')
+        
+        # load trajexctory embedding
+
+        # load instruction embedding
+
         self.type = instruction_type
 
     def __len__(self):
@@ -75,6 +86,7 @@ if __name__ == '__main__':
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
     
+    instruct_dir = config['train']['instruct_dir'] 
     context_length = config['train']['context_length'] 
     epochs = config['train']['epochs']
     model_type = config['train']['model_type'] 
@@ -105,7 +117,7 @@ if __name__ == '__main__':
             datefmt="%m/%d/%Y %H:%M:%S",
             level=logging.INFO,
     )
-    dataset = StateActionReturnDataset(obss, context_length*3, actions, done_idxs, rtgs, timesteps, game, instruction_type, games)
+    dataset = StateActionReturnDataset(obss, context_length*3, actions, done_idxs, rtgs, timesteps, game, instruction_type, games, instruct_dir)
     dataset_size = len(dataset)
     train_size = int(0.8 * dataset_size)
     test_size = dataset_size - train_size

@@ -1,6 +1,6 @@
 action_space: 6
 annotate:
-  game_annonate: AirRaid
+  game_annonate: Air_Raid
   traj_num: 20
 condition_dim: 512
 dataset_dir: /scratch/vcis/project/dt-with-multiInst/data/

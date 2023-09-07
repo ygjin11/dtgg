@@ -1,4 +1,7 @@
 train:
   - "Air_Raid"
 eval:
+
   - "Air_Raid"
+    name: "Air_Raid"
+    action_dim: 6

@@ -102,7 +102,6 @@ class Env():
 
     def close(self):
         cv2.destroyAllWindows()
-
 class Args:
     def __init__(self, game, seed):
         self.device = torch.device('cuda')
@@ -111,14 +110,18 @@ class Args:
         self.game = game
         self.history_length = 4
 
-def interact(ret, env, model, max_timestep, instruction_type, game):
+def interact(ret, env, model, max_timestep, instruction_type, game, instruct_dir):
     T_rewards, T_Qs = [], []
     done = True
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
     # load instruction
-    game_embed = get_language_clip(game).to(device)
+    dir = instruct_dir + game + '/language.txt'
+    with open(dir, 'r') as file:
+        Text = file.read()
+    game_embed = get_language_clip(Text).to('cpu')
+        
 
     # load trajectory
     # TODO
@@ -195,7 +198,7 @@ if __name__ == '__main__':
     current_file = os.path.abspath(__file__)
     current_directory = os.path.dirname(current_file)
     parent_directory = os.path.dirname(current_directory)
-    config_path = parent_directory + '/config/config_para/para.yaml'
+    config_path = parent_directory + '/config/config_main/main.yaml'
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
     
@@ -210,6 +213,7 @@ if __name__ == '__main__':
     action_space = config['action_space']
     eval_rtg = config['eval']['eval_rtg']
     condition_dim = config['condition_dim']
+    instruct_dir = config['instruct_dir']
 
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
