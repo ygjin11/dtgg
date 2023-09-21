@@ -1,11 +1,13 @@
+'''external package'''
 import math
 import logging
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from model.adapter_generators import ParameterGenerator
 logger = logging.getLogger(__name__)
 import numpy as np
+'''our package'''
+from model.adapter_generators import ParameterGenerator
 
 class GELU(nn.Module):
     def forward(self, input):
@@ -18,8 +20,9 @@ class GPTConfig:
     attn_pdrop = 0.1
     adapter_norm_input = False
     adapter_dim = 64
-    l_embed_dim = 128  # layer embedding dim
-    embed_dim = 128  # multimodal embedding dim
+    l_embed_dim = 128  ## layer embedding dim
+    embed_dim = 128  ## multimodal embedding dim
+    insruction_type = 'language'
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -40,13 +43,13 @@ class AdapterLayer(nn.Module):
         hidden_size = config.n_embd
         self.input_dim = config.n_embd
         self.output_dim = config.n_embd
-        # insertion weights
+        ## insertion weights
         self.adapter_down_weight = None
         self.adapter_down_bias = None
         self.adapter_up_weight = None
         self.adapter_up_bias = None
         self.hidden_act = nn.ReLU()
-        # learnt adapter + inits for it
+        ## learnt adapter + inits for it
         self.adapter_down_manual = nn.Linear(hidden_size, self.adapter_dim)
         self.adapter_up_manual = nn.Linear(self.adapter_dim, hidden_size)
         nn.init.xavier_uniform_(self.adapter_up_manual.weight, gain=1e-4)
@@ -69,15 +72,15 @@ class AdapterLayer(nn.Module):
 
     def forward(self, x):
         if self.adapter_down_weight is not None:
-            x = (x @ self.adapter_down_weight) + self.adapter_down_bias.unsqueeze(1)  # x:batch * length * hid_dim  @  weight:batch * hid_dim * adapter_dim
-                                                                                      #  =  batch * length * adapter_dim
+            x = (x @ self.adapter_down_weight) + self.adapter_down_bias.unsqueeze(1)  ## x:batch * length * hid_dim  @  weight:batch * hid_dim * adapter_dim
+                                                                                      ##  =  batch * length * adapter_dim
             x = self.hidden_act(x)
             x = (x @ self.adapter_up_weight) + self.adapter_up_bias.unsqueeze(1)
         else:
             x = self.adapter_down_manual(x)
             x = self.hidden_act(x)
             x = self.adapter_up_manual(x)
-        return x  # no residual connection - we let the user of this layer decide that
+        return x  ## no residual connection - we let the user of this layer decide that
 
 class CausalSelfAttention(nn.Module):
     """
@@ -89,18 +92,18 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
-        # key, query, value projections for all heads
+        ## key, query, value projections for all heads
         self.key = nn.Linear(config.n_embd, config.n_embd)
         self.query = nn.Linear(config.n_embd, config.n_embd)
         self.value = nn.Linear(config.n_embd, config.n_embd)
-        # regularization
+        ## regularization
         self.attn_drop = nn.Dropout(config.attn_pdrop)
         self.resid_drop = nn.Dropout(config.resid_pdrop)
-        # output projection
+        ## output projection
         self.proj = nn.Linear(config.n_embd, config.n_embd)
-        # causal mask to ensure that attention is only applied to the left in the input sequence
-        # self.register_buffer("mask", torch.tril(torch.ones(config.block_size, config.block_size))
-        #                              .view(1, 1, config.block_size, config.block_size))
+        ## causal mask to ensure that attention is only applied to the left in the input sequence
+        ## self.register_buffer("mask", torch.tril(torch.ones(config.block_size, config.block_size))
+        ##                              .view(1, 1, config.block_size, config.block_size))
         self.register_buffer("mask", torch.tril(torch.ones(config.block_size + 1, config.block_size + 1))
                                      .view(1, 1, config.block_size + 1, config.block_size + 1))
         self.n_head = config.n_head
@@ -108,20 +111,20 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x, layer_past=None):
         B, T, C = x.size()
 
-        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        k = self.key(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = self.query(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = self.value(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        ## calculate query, key, values for all heads in batch and move head forward to be the batch dim
+        k = self.key(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) ## (B, nh, T, hs)
+        q = self.query(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) ## (B, nh, T, hs)
+        v = self.value(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) ## (B, nh, T, hs)
 
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        ## causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.mask[:,:,:T,:T] == 0, float('-inf'))
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
-        y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        y = att @ v ## (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        y = y.transpose(1, 2).contiguous().view(B, T, C) ## re-assemble all head outputs side by side
 
-        # output projection
+        ## output projection
         y = self.resid_drop(self.proj(y))
         return y
 
@@ -167,16 +170,16 @@ class GPT_condition(nn.Module):
 
         self.model_type = config.model_type
 
-        # input embedding stem
+        ## input embedding stem
         self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        # self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
+        ## self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
         self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size + 1, config.n_embd))
         self.global_pos_emb = nn.Parameter(torch.zeros(1, config.max_timestep+1, config.n_embd))
         self.drop = nn.Dropout(config.embd_pdrop)
 
-        # transformer
+        ## transformer
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
-        # decoder head
+        ## decoder head
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
@@ -186,6 +189,9 @@ class GPT_condition(nn.Module):
         self.param_gen = ParameterGenerator(
             config, config.n_embd
         )
+
+        ## instruction type
+        self.instruction_type = config.instruction_type
 
 
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
@@ -221,10 +227,10 @@ class GPT_condition(nn.Module):
         We are then returning the PyTorch optimizer object.
         """
 
-        # separate out all parameters to those that will and won't experience regularizing weight decay
+        ## separate out all parameters to those that will and won't experience regularizing weight decay
         decay = set()
         no_decay = set()
-        # whitelist_weight_modules = (torch.nn.Linear, )
+        ## whitelist_weight_modules = (torch.nn.Linear, )
         whitelist_weight_modules = (torch.nn.Linear, torch.nn.Conv2d)
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.named_modules():
@@ -232,20 +238,20 @@ class GPT_condition(nn.Module):
                 fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
 
                 if pn.endswith('bias'):
-                    # all biases will not be decayed
+                    ## all biases will not be decayed
                     no_decay.add(fpn)
                 elif pn.endswith('weight') and isinstance(m, whitelist_weight_modules):
-                    # weights of whitelist modules will be weight decayed
+                    ## weights of whitelist modules will be weight decayed
                     decay.add(fpn)
                 elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
-                    # weights of blacklist modules will NOT be weight decayed
+                    ## weights of blacklist modules will NOT be weight decayed
                     no_decay.add(fpn)
 
-        # special case the position embedding parameter in the root GPT module as not decayed
+        ## special case the position embedding parameter in the root GPT module as not decayed
         no_decay.add('pos_emb')
         no_decay.add('global_pos_emb')
 
-        # validate that we considered every parameter
+        ## validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
         union_params = decay | no_decay
@@ -253,7 +259,7 @@ class GPT_condition(nn.Module):
         assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
                                                     % (str(param_dict.keys() - union_params), )
 
-        # create the pytorch optimizer object
+        ## create the pytorch optimizer object
         optim_groups = [
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
@@ -261,13 +267,14 @@ class GPT_condition(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
 
-    # state, action, and return
+    ## state, action, and return
     def forward(self, states, actions, targets=None, rtgs=None, timesteps=None, instruction=None):
         # states: (batch, block_size, 4*84*84)
         # actions: (batch, block_size, 1)
         # targets: (batch, block_size, 1)
         # rtgs: (batch, block_size, 1)
         # timesteps: (batch, 1, 1)
+        # instuction：(batch, x)
         self.clear_adapters()
         state_embeddings = self.state_encoder(states.reshape(-1, 4, 84, 84).type(torch.float32).contiguous()) # (batch * block_size, n_embd)
         state_embeddings = state_embeddings.reshape(states.shape[0], states.shape[1], self.config.n_embd) # (batch, block_size, n_embd)
@@ -300,15 +307,22 @@ class GPT_condition(nn.Module):
 
         batch_size = states.shape[0]
         all_global_pos_emb = torch.repeat_interleave(self.global_pos_emb, batch_size, dim=0) # batch_size, traj_length, n_embd
-
         position_embeddings = torch.gather(all_global_pos_emb, 1, torch.repeat_interleave(timesteps, self.config.n_embd, dim=-1)) + self.pos_emb[:, :token_embeddings.shape[1], :]
 
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # condition = torch.randn(128, self.config.embed_dim, device=token_embeddings.device)
-        self.apply_params_to_adapters(
-            token_embeddings.size(0),
-            self.param_gen(instruction),
-        )
+        # > generate instruction
+        ## instruction type : language
+        if self.instruction_type == 'language':
+            self.apply_params_to_adapters(
+                token_embeddings.size(0),
+                self.param_gen(instruction),
+            )
+        ## instruction type : trajectory
+        if self.instruction_type == 'trajectory':
+            pass
+        ## instruction type : guide
+        if self.instruction_type == 'guide':
+            pass
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
         x = self.drop(token_embeddings + position_embeddings)
@@ -327,7 +341,7 @@ class GPT_condition(nn.Module):
         else:
             raise NotImplementedError()
 
-        # if we are given some desired targets also calculate the loss
+        ## if we are given some desired targets also calculate the loss
         loss = None
         if targets is not None:
             loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))

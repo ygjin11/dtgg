@@ -1,7 +1,6 @@
 train:
-  - "Air_Raid"
-eval:
-
-  - "Air_Raid"
-    name: "Air_Raid"
-    action_dim: 6
+  - Air_Raid
+  - Alien
+eval: 
+  - name: Alien
+    action_dim: 18

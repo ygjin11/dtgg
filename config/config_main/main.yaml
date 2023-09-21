@@ -1,25 +1,25 @@
-action_space: 6
+action_space: 18
 annotate:
-  game_annonate: Air_Raid
+  game_annonate: Alien
   traj_num: 20
 condition_dim: 512
-dataset_dir: /scratch/vcis/project/dt-with-multiInst/data/
+dataset_dir: /home/Userlist/jinyg/DATA/
 eval:
   action_space: 6
-  ckpt_eval: /scratch/vcis/project/dt-with-multiInst/checkpoint/0.9_language_1.ckpt
-  eval_rtg: 2000
+  ckpt_eval: /home/Userlist/jinyg/dtmi/checkpoint/0.79_raw_1.ckpt
+  eval_rtg: 1000
   max_timestep: 4749
 game_list: '1'
-instruct_dir: /scratch/vcis/project/dt-with-multiInst/instruct/
+instruct_dir: /home/Userlist/jinyg/dtmi/instruct/
 instruction_type: language
 max_timestep: 4955
 seed: 123
 train:
   batch_size: 256
-  ckpt_path: /scratch/vcis/project/dt-with-multiInst/checkpoint
+  ckpt_path: /home/Userlist/jinyg/dtmi/checkpoint/
   context_length: 30
   epochs: 5
   model_type: reward_conditioned
   num_buffers: 50
-  num_steps: 500000
-  trajectories_per_buffer: 20
+  num_steps: 100000
+  trajectories_per_buffer: 2

@@ -1,15 +1,17 @@
+'''external package'''
+import sys
 import numpy as np
 import random
-# our package
-from tool.fixed_replay_buffer import FixedReplayBuffer
-from tool.utils import sample
 import os
 import cv2
 from PIL import Image
 import json
-import sys
-import argparse
 import yaml
+from rich.console import Console
+console = Console()
+'''our package'''
+from tool.fixed_replay_buffer import FixedReplayBuffer
+from tool.utils import sample
 
 # get best trajectory
 def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer):
@@ -31,7 +33,6 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
     
     # num_steps: number of <s, a ,r>
     while len(obss) < num_steps:
-
         # choose one from 50 buffers 
         buffer_num = np.random.choice(np.arange(50 - num_buffers, 50), 1)[0]
         i = transitions_per_buffer[buffer_num]
@@ -78,8 +79,8 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
         print('this buffer has %d loaded transitions and there are now %d transitions total divided into %d trajectories' % (i, len(obss), num_trajectories))
-
-
+    console.log("load all data")
+    
     actions = np.array(actions)
     returns = np.array(returns)
     stepwise_returns = np.array(stepwise_returns)
@@ -95,7 +96,7 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
             rtg_j = curr_traj_returns[j-start_index:i-start_index]
             rtg[j] = sum(rtg_j)
         start_index = i
-    print('max rtg is %d' % max(rtg))
+    console.log('max rtg is %d' % max(rtg))
 
     # -- create timestep dataset
     start_index = 0
@@ -104,7 +105,7 @@ def obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories
         i = int(i)
         timesteps[start_index:i+1] = np.arange(i+1 - start_index)
         start_index = i+1
-    print('max timestep is %d' % max(timesteps))
+    console.log('max timestep is %d' % max(timesteps))
 
 
     max_rtg_index = np.argsort(rtg)[-1]
@@ -151,7 +152,8 @@ def get_segment_traj(obss, actions, rtg, num_segment):
         pair.append(index_change[i])
         pair.append(index_change[i+1])
         point_pair.append(pair)
-    
+        
+    num_segment = len(point_pair)
     random_pair = random.sample(point_pair, num_segment)
     for i in range(len(random_pair)):
         start = random_pair[i][0]
@@ -227,25 +229,36 @@ if __name__ == '__main__':
     current_directory = os.path.dirname(current_file)
     parent_directory = os.path.dirname(current_directory)
     config_path = parent_directory + '/config/config_main/main.yaml'
-
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
-
-    game = config['annotate']['game_annonate']
-    data_dir_prefix = config['dataset_dir'] 
-    out_putdir = config['instruct_dir'] + game + '/'
+    data_dir_prefix = config['dataset_dir']
     num_segment = config['annotate']['traj_num']
 
-    num_steps = 1000000
-    num_buffers = 50
-    trajectories_per_buffer = 20
 
-    obss, actions, returns, done_idxs, rtg, timesteps = obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer)
-    if not os.path.exists(out_putdir):
-        os.makedirs(out_putdir)
-    segment_traj, segment_action, segment_rtg  = get_segment_traj(obss, actions, rtg, num_segment)
-    get_video_frame(out_putdir, segment_traj)
-    get_action_rtg(out_putdir, segment_action, segment_rtg)
+    ## batch obtain
+    ## error: Tennis, Gravity, Pitfall, Ms_Pacman  
+    entries = os.listdir(data_dir_prefix)
+    subfolders = [entry for entry in entries if os.path.isdir(os.path.join(data_dir_prefix, entry))]
+    for subfolder in subfolders:
+        ## get game
+        game = subfolder
+        out_putdir = config['instruct_dir'] + game + '/'
+
+        num_steps = 500000
+        num_buffers = 50
+        trajectories_per_buffer = 1
+
+        instr = '/home/Userlist/jinyg/dtmi/instruct/'
+        exist = [entry for entry in entries if os.path.isdir(os.path.join(instr, entry))]
+        if not game in exist:
+            console.log(f'begin to process {game}')
+            obss, actions, returns, done_idxs, rtg, timesteps = \
+                obtain_best_traj(num_buffers, num_steps, game, data_dir_prefix, trajectories_per_buffer)
+            if not os.path.exists(out_putdir):
+                os.makedirs(out_putdir)
+            segment_traj, segment_action, segment_rtg  = get_segment_traj(obss, actions, rtg, num_segment)
+            get_video_frame(out_putdir, segment_traj)
+            get_action_rtg(out_putdir, segment_action, segment_rtg)
 
 
                                                                   

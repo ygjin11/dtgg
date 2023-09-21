@@ -1,22 +1,19 @@
+'''external package'''
 import numpy as np
 import random
-# our package
-from tool.fixed_replay_buffer import FixedReplayBuffer
-from tool.utils import sample
 import os
 import cv2
 from PIL import Image
+from rich.console import Console
+console = Console()
+'''our package'''
+from tool.fixed_replay_buffer import FixedReplayBuffer
+from tool.utils import sample
 
-# get dataset of one game
-# obss
-# actions
-# returns
-# done_idxs
-# rtg
-# timesteps
-# game
+
+## get dataset 
 def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_per_buffer):
-    # -- load data from memory (make more efficient)
+    ## -- load data from memory (make more efficient)
     obss = []
     actions = []
     returns = [0]
@@ -36,7 +33,7 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
         i = transitions_per_buffer[buffer_num]
 
         Game = games[index]
-        print(f'===============get dataset of {Game} {Game} {Game} {Game}===============')
+        console.log(f'get dataset of {Game}')
         index = index + 1
         if index == game_num:
             index = 0
@@ -82,14 +79,14 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
 
-        print(f"#########################load obss length: {len(obss)}#########################")
+        console.print(f"load obss length: {len(obss)}")
 
     actions = np.array(actions)
     returns = np.array(returns)
     stepwise_returns = np.array(stepwise_returns)
     done_idxs = np.array(done_idxs)
 
-    # -- create reward-to-go dataset
+    ## -- create reward-to-go dataset
     start_index = 0
     rtg = np.zeros_like(stepwise_returns)
     for i in done_idxs:
@@ -100,7 +97,7 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
             rtg[j] = sum(rtg_j)
         start_index = i
 
-    # -- create timestep dataset
+    ## -- create timestep dataset
     start_index = 0
     timesteps = np.zeros(len(actions)+1, dtype=int)
     for i in done_idxs:

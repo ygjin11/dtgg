@@ -1,3 +1,4 @@
+'''external package'''
 import csv
 import logging
 import numpy as np
@@ -6,24 +7,22 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.data import Dataset,  random_split
-
-from model.dt import GPT, GPTConfig
-from model.dt_condition import GPTConfig_condition, GPT_condition 
-from offline.trainer import Trainer, TrainerConfig
-
-from tool.utils import sample
-from tool.utils import set_seed
 from collections import deque
-from create_dataset import create_dataset
-from tool.clip_extract_lang import get_language_clip
 import os
 import yaml
+from rich.console import Console
+console = Console()
+'''our package'''
+from model.dt import GPTConfig, GPT
+from model.dt_condition import GPTConfig_condition, GPT_condition 
+from offline.trainer import Trainer, TrainerConfig
+from tool.utils import set_seed
+from create_dataset import create_dataset
+from tool.clip_extract_lang import get_language_clip
 
-
-# dataset
 class StateActionReturnDataset(Dataset):
 
-    def __init__(self, data, block_size, actions, done_idxs, rtgs, timesteps, game, instruction_type, games):        
+    def __init__(self, data, block_size, actions, done_idxs, rtgs, timesteps, game, instruction_type, games, instruct_dir):        
         self.block_size = block_size
         self.vocab_size = max(actions) + 1
         self.data = data
@@ -32,20 +31,23 @@ class StateActionReturnDataset(Dataset):
         self.rtgs = rtgs
         self.timesteps = timesteps
         self.game = game
-
-        # load text embedding
-        self.game_dict = dict()
-        for i in range(len(games)):  
-            dir = instruct_dir + games[i] + '/language.txt'
-            with open(dir, 'r') as file:
-                Text = file.read()
-            self.game_dict[games[i]] = get_language_clip(Text).to('cpu')
-        
-        # load trajexctory embedding
-
-        # load instruction embedding
-
         self.type = instruction_type
+
+        if instruction_type != 'raw':
+             ## load text embedding
+            if instruction_type == 'language':
+                self.game_dict = dict()
+                for i in range(len(games)):  
+                    dir = instruct_dir + games[i] + '/language.txt'
+                    with open(dir, 'r') as file:
+                        Text = file.read()
+                    self.game_dict[games[i]] = get_language_clip(Text).to('cpu')
+            ## load trajexctory embedding
+            if instruction_type == 'trajectoery':
+                pass
+            ## load instruction embedding
+            if instruction_type == 'instruction':
+                pass
 
     def __len__(self):
         return len(self.data) - self.block_size
@@ -54,7 +56,7 @@ class StateActionReturnDataset(Dataset):
         block_size = self.block_size // 3
         done_idx = idx + block_size
         for i in self.done_idxs:
-            if i > idx: # first done_idx greater than idx
+            if i > idx: ## first done_idx greater than idx
                 done_idx = min(int(i), done_idx)
                 break
         idx = done_idx - block_size
@@ -78,15 +80,16 @@ class StateActionReturnDataset(Dataset):
 
 if __name__ == '__main__': 
 
-    # load config
+    console.log('Loading config and dataset...')
+
+    #@ load condif
     current_file = os.path.abspath(__file__)
     current_directory = os.path.dirname(current_file)
     parent_directory = os.path.dirname(current_directory)
-    config_path = parent_directory + '/config/config_para/para.yaml'
+    config_path = parent_directory + '/config/config_main/main.yaml'
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
     
-    instruct_dir = config['train']['instruct_dir'] 
     context_length = config['train']['context_length'] 
     epochs = config['train']['epochs']
     model_type = config['train']['model_type'] 
@@ -96,8 +99,8 @@ if __name__ == '__main__':
     trajectories_per_buffer = config['train']['trajectories_per_buffer']
     ckpt_path = config['train']['ckpt_path']
 
-
     data_dir_prefix = config['dataset_dir']
+    instruct_dir = config['instruct_dir'] 
     instruction_type = config['instruction_type']
     game_list = config['game_list']
     game_path = parent_directory + '/config/config_game/' + game_list + '.yaml'
@@ -110,7 +113,7 @@ if __name__ == '__main__':
     seed = config['seed'] 
     set_seed(seed)
 
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@load dataset@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    #@ load datasdet
     obss, actions, returns, done_idxs, rtgs, timesteps, game = create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_per_buffer)
     logging.basicConfig(
             format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
@@ -128,23 +131,23 @@ if __name__ == '__main__':
     with open(config_path, 'w') as file:
         yaml.dump(config, file)
 
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@train@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")  
-
-    '''model config'''  
-    # original DT training
+    console.log('train-init model...')  
+    ## original DT
     if instruction_type == 'raw':
         mconf = GPTConfig(dataset.vocab_size, dataset.block_size,
                         n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max(timesteps))
         model = GPT(mconf)
-    # task conditioned training-raw
+    ## task conditioned DT
     elif instruction_type == 'language':
         mconf = GPTConfig_condition(dataset.vocab_size, dataset.block_size,
-                        n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max(timesteps), embed_dim=condition_dim)
+                        n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max(timesteps), embed_dim=condition_dim, instruction_type=instruction_type)
         model = GPT_condition(mconf)
-  
-    '''train config'''  
+
+    console.log('train-init trainer...') 
     tconf = TrainerConfig(max_epochs=epochs, batch_size=batch_size, learning_rate=6e-4,
                 lr_decay=True, warmup_tokens=512*20, final_tokens=2*len(train_dataset)*context_length*3,
                 num_workers=4, seed=seed, model_type=model_type, game=game, max_timestep=max(timesteps), ckpt_path=ckpt_path)
     trainer = Trainer(model, train_dataset, test_dataset, tconf, instruction_type, game_list)
+    
+    console.log('train-training...') 
     trainer.train()

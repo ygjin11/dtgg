@@ -1,3 +1,4 @@
+'''external package'''
 import math
 import logging
 from tqdm import tqdm
@@ -7,26 +8,30 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.dataloader import DataLoader
 logger = logging.getLogger(__name__)
-from tool.utils import sample
 from collections import deque
 import random
 import cv2
 import torch
 from PIL import Image
+import os
+from rich.console import Console
+console = Console()
+'''our package'''
+from tool.utils import sample
 
 class TrainerConfig:
-    # optimization parameters
+    ## optimization parameters
     max_epochs = 10
     batch_size = 64
     learning_rate = 3e-4
     betas = (0.9, 0.95)
     grad_norm_clip = 1.0
     weight_decay = 0.1 # only applied on matmul weights
-    # learning rate decay params: linear warmup followed by cosine decay to 10% of original
+    ## learning rate decay params: linear warmup followed by cosine decay to 10% of original
     lr_decay = False
     warmup_tokens = 375e6 # these two numbers come from the GPT-3 paper, but may not be good defaults elsewhere
     final_tokens = 260e9 # (at what point we reach 10% of original LR)
-    # checkpoint settings
+    ## checkpoint settings
     ckpt_path = None
     num_workers = 0 # for DataLoader
 
@@ -44,17 +49,25 @@ class Trainer:
         self.itype = itype
         self.game_list = game_list
 
-        # take over whatever gpus are on the system
+        ## take over whatever gpus are on the system
         self.device = 'cpu'
         if torch.cuda.is_available():
             self.device = torch.cuda.current_device()
             self.model = torch.nn.DataParallel(self.model).to(self.device)
 
     def save_checkpoint(self, loss):
-        # DataParallel wrappers keep raw model object in .module attribute
+        ## DataParallel wrappers keep raw model object in .module attribute
+
+        ## get time
+        from datetime import datetime
+        parsed_time = datetime.now().date()
+        
+        ## save checkpoint
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
-        torch.save(raw_model.state_dict(), self.config.ckpt_path + '/' +  str(round(loss,2)) + '_' + self.itype + '_' + self.game_list + '.ckpt')
+        if not os.path.exists(self.config.ckpt_path + str(parsed_time)):
+            os.makedirs(self.config.ckpt_path + str(parsed_time))
+        torch.save(raw_model.state_dict(), self.config.ckpt_path + str(parsed_time) + '/' + str(round(loss,2)) + '_' + self.itype + '_' + self.game_list + '.ckpt')
 
     def train(self):
         model, config = self.model, self.config
@@ -72,6 +85,7 @@ class Trainer:
             losses = []
             pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
 
+            #@ raw trainer：not use condition information to train
             if self.itype == 'raw':
                 for it, (x, y, r, t) in pbar:
 
@@ -114,7 +128,8 @@ class Trainer:
 
                         # report progress
                         pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
-                
+            
+            #@ raw trainer use condition information to train 
             else:
                 for it, (x, y, r, t, c) in pbar:
                     # place data on the correct device
@@ -165,5 +180,5 @@ class Trainer:
         for epoch in range(config.max_epochs):
             run_epoch('train')
             test_loss = run_epoch('test')
-            print(f"########################################## epoch test_loss: {test_loss} ##########################################")
+            console.log(f"epoch test_loss: {test_loss}")
             self.save_checkpoint(test_loss)

@@ -1,19 +1,22 @@
+'''external package'''
 import logging
 import torch
+import cv2
 from tool.utils import sample
 logger = logging.getLogger(__name__)
 import atari_py
 from collections import deque
 import random
-import cv2
-import torch
 import yaml
 import os
+from rich.console import Console
+console = Console()
+'''our package'''
 from tool.clip_extract_lang import get_language_clip
 from model.dt import GPT, GPTConfig
 from model.dt_condition import GPTConfig_condition, GPT_condition 
-import pdb
 
+#! env
 class Env():
 
     def __init__(self, args):
@@ -102,6 +105,8 @@ class Env():
 
     def close(self):
         cv2.destroyAllWindows()
+
+#! parameters of env
 class Args:
     def __init__(self, game, seed):
         self.device = torch.device('cuda')
@@ -110,46 +115,60 @@ class Args:
         self.game = game
         self.history_length = 4
 
-def interact(ret, env, model, max_timestep, instruction_type, game, instruct_dir):
-    T_rewards, T_Qs = [], []
+#! whole evaluation process 
+def interact(ret, env, model, max_timestep, instruction_type, game, instruct_dir, action_dim):
+    T_rewards = []
     done = True
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model.to(device)
 
-    # load instruction
-    dir = instruct_dir + game + '/language.txt'
-    with open(dir, 'r') as file:
-        Text = file.read()
-    game_embed = get_language_clip(Text).to('cpu')
-        
+    #@ load language, instruction and guide.
+    #@ at the same time, we use clip to extract features of these.
+    ## 1.load language: load language description of game such as 'control ship to attack'，
+    ## and use clip_text_encoder to extract features of this language description.
+    if instruction_type == 'language':
+        dir = instruct_dir + game + '/language.txt'
+        with open(dir, 'r') as file:
+            Text = file.read()
+        game_embed = get_language_clip(Text).to('cpu')
+    ## 2.load trajectory：load one trajectory of game: frame_1,...,frame_n
+    if instruction_type == 'trajectory':
+        pass
+    ## 3.load guide：load one instruction of game, consisting of
+    ## action description
+    ## frame_1,...,frame_n
+    ## instruction_1,...,instruction_n
+    if instruction_type == 'guide':
+        pass
 
-    # load trajectory
-    # TODO
-
-    # load instruction
-    # TODO
-
-    num = 5
-    for i in range(num):
+    #@ evaluate 5 times each seed
+    for i in range(5):
         state = env.reset()
         state = state.type(torch.float32).to(device).unsqueeze(0).unsqueeze(0)
         rtgs = [ret]
-        # first state is from env, first rtg is target return, and first timestep is 0
+        ## first state is from env, first rtg is target return, and first timestep is 0
         if instruction_type == 'raw':
             sampled_action = sample(model, state, 1, temperature=1.0, sample=True, actions=None, 
                 rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
                 timesteps=torch.zeros((1, 1, 1), dtype=torch.int64).to(device),
                 instruction=None)
         else:
-            # laod instruction
+            ## laod instruction
             if instruction_type == 'language':
                 instruction = game_embed
-            
+            elif instruction_type == 'trajectory':
+                pass 
+            elif instruction_type == 'guide':
+                pass 
             sampled_action = sample(model, state, 1, temperature=1.0, sample=True, actions=None, 
                 rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
                 timesteps=torch.zeros((1, 1, 1), dtype=torch.int64).to(device),
-                instruction=instruction)  
-                     
+                instruction=instruction) 
+            
+        ## if beyond action dim, limit in the scope of action dim
+        if sampled_action[0][0].item() >= action_dim:
+            sampled_action[0][0] = random.randint(0, action_dim-1)
+
         j = 0
         all_states = state
         actions = []
@@ -167,30 +186,35 @@ def interact(ret, env, model, max_timestep, instruction_type, game, instruct_dir
                 break
 
             state = state.unsqueeze(0).unsqueeze(0).to(device)
-
             all_states = torch.cat([all_states, state], dim=0)
-
             rtgs += [rtgs[-1] - reward]
-            # all_states has all previous states and rtgs has all previous rtgs (will be cut to block_size in utils.sample)
-            # timestep is just current timestep
+            ## all_states has all previous states and rtgs has all previous rtgs (will be cut to block_size in utils.sample)
+            ## timestep is just current timestep
             if instruction_type == 'raw':
                 sampled_action = sample(model, all_states.unsqueeze(0), 1, temperature=1.0, sample=True, 
                     actions=torch.tensor(actions, dtype=torch.long).to(device).unsqueeze(1).unsqueeze(0), 
                     rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
                     timesteps=(min(j, max_timestep) * torch.ones((1, 1, 1), dtype=torch.int64).to(device)))
             else:
-                # laod instruction
+                ## laod instruction
                 if instruction_type == 'language':
                     instruction = game_embed
-
+                elif instruction_type == 'trajectory':
+                    pass 
+                elif instruction_type == 'guide':
+                    pass 
                 sampled_action = sample(model, all_states.unsqueeze(0), 1, temperature=1.0, sample=True, 
                     actions=torch.tensor(actions, dtype=torch.long).to(device).unsqueeze(1).unsqueeze(0), 
                     rtgs=torch.tensor(rtgs, dtype=torch.long).to(device).unsqueeze(0).unsqueeze(-1), 
                     timesteps=(min(j, max_timestep) * torch.ones((1, 1, 1), dtype=torch.int64).to(device)),
                     instruction = instruction)
+                
+            ## if beyond action dim, limit in the scope of action dim
+            if sampled_action[0][0].item() >= action_dim:
+                sampled_action[0][0] = random.randint(0, action_dim-1)
 
     env.close()
-    eval_return = sum(T_rewards)/num
+    eval_return = sum(T_rewards)/5
     print("target return: %d, eval return: %d" % (ret, eval_return))
     return eval_return
 
@@ -201,7 +225,6 @@ if __name__ == '__main__':
     config_path = parent_directory + '/config/config_main/main.yaml'
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
-    
     seed = config['seed'] 
     context_length = config['train']['context_length'] 
     model_type = config['train']['model_type']
@@ -214,40 +237,37 @@ if __name__ == '__main__':
     eval_rtg = config['eval']['eval_rtg']
     condition_dim = config['condition_dim']
     instruct_dir = config['instruct_dir']
-
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
     games = config_game['eval']
 
     if instruction_type == 'raw':
-        # model config
         mconf = GPTConfig(action_space, context_length*3,
                           n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep)
         model = GPT(mconf)
-         
     elif instruction_type == 'language':
         mconf = GPTConfig_condition(action_space, context_length*3,
-                n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep, embed_dim=condition_dim)
+                n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep, embed_dim=condition_dim, instruction_type=instruction_type)
         model = GPT_condition(mconf)
-
-    # laod ckpt
-    print('@@@@@@@@@@@@@@@@@@@@@@@ load ckpt @@@@@@@@@@@@@@@@@@@@@@@')
+    
+    ## laod ckpt
+    console.log('load ckpt')
     model.train(False)
     state_dict = torch.load(ckpt_eval)
     model.load_state_dict(state_dict)
 
-    # interact
-    print('@@@@@@@@@@@@@@@@@@@@@@@ eval @@@@@@@@@@@@@@@@@@@@@@@')
-    for game in games:
-        num = 20
+    ## interact
+    for item in games:
+        game = item['name']
+        action_dim = item['action_dim']
         sum_retrun = 0
-        for i in range(num):
-            print(f'@@@@@@@@@@@@@@@@@@@@@@@ eval {i} @@@@@@@@@@@@@@@@@@@@@@@')
+        for i in range(10):
+            console.log(f'eval {i}')
             seed = seed + random.randint(0, 100)
             args=Args(game.lower(), seed)
             env = Env(args)
             env.eval()
-            eval_return = interact(eval_rtg, env, model, max_timestep, instruction_type, game)
+            eval_return = interact(eval_rtg, env, model, max_timestep, instruction_type, game, instruct_dir, action_dim)
             sum_retrun += eval_return 
-            average_return = sum_retrun /num
-        print(f"average return of {game}: {average_return}")  
+            average_return = sum_retrun /10
+        console.print(f"average return of {game}: {average_return}", style="bold purple")  

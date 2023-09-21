@@ -1,5 +1,5 @@
+'''external package'''
 import math
-
 import torch
 import torch.nn as nn
 
@@ -21,29 +21,29 @@ class SimpleGenerator(nn.Module):
         super().__init__()
         adapter_dim = config.adapter_dim
         self.input_dim = input_dim
-        # self.hidden_dim = config.hypernetwork_bottleneck
+        ## self.hidden_dim = config.hypernetwork_bottleneck
         self.linear1 = nn.Linear(self.input_dim, 128)
         self.activation_fn = nn.ReLU()
         self.linear2 = nn.Linear(128, 64)
         self.LayerNorm = nn.LayerNorm(64, eps=1e-6)
-        # output weights
+        ## output weights
         self.weight_up = nn.Linear(64, hidden_size * adapter_dim)
         self.weight_down = nn.Linear(64, hidden_size * adapter_dim)
         self.bias_up = nn.Linear(64, hidden_size)
         self.bias_down = nn.Linear(64, adapter_dim)
-        # init weights
+        ## init weights
         hyperfanin_init_weight(self.weight_up, 64, adapter_dim)
         hyperfanin_init_weight(self.weight_down, 64, hidden_size)
         hyperfanin_init_bias(self.bias_up, 64)
         hyperfanin_init_bias(self.bias_down, 64)
 
-    def forward(self, x):  # x:batch * task_dim+layer_dim
-        x = self.linear1(x)  # x:batch * (hidden_size * adapter_dim)
+    def forward(self, x):  ## x:batch * task_dim+layer_dim
+        x = self.linear1(x)  ## x:batch * (hidden_size * adapter_dim)
         x = self.activation_fn(x)
-        x = self.linear2(x)  # x是投影后的task-embedding
+        x = self.linear2(x)  ## x是投影后的task-embedding
         x = self.LayerNorm(x)
         return (
-            self.weight_up(x),  # batch * hidden_dim * adapter_dim
+            self.weight_up(x),  ## batch * hidden_dim * adapter_dim
             self.weight_down(x),
             self.bias_up(x),
             self.bias_down(x),
@@ -61,17 +61,17 @@ class ParameterGenerator(nn.Module):
 
     def forward(self, hidden_inputs):
         layers = []
-        # setup idxs we need
+        ## setup idxs we need
         layers_idxs = torch.arange(
             0,
             self.config.n_layer,
             dtype=torch.long,
             device=hidden_inputs.device,
         )
-        layers_idxs = layers_idxs.repeat(hidden_inputs.size(0), 1)  #  batch layer_num
+        layers_idxs = layers_idxs.repeat(hidden_inputs.size(0), 1)  ## batch layer_num
 
         for i in range(self.config.n_layer):
-            layer_embed = self.layer_embed(layers_idxs[:, i])  # batch layer_emb_dim
-            hidden_input = torch.cat([hidden_inputs, layer_embed], dim=1)  # batch * task_emb_dim+layer_emb_dim
-            layers.append(self.decoder(hidden_input))   #  12层，每层对应batch * weight
+            layer_embed = self.layer_embed(layers_idxs[:, i])  ## batch layer_emb_dim
+            hidden_input = torch.cat([hidden_inputs, layer_embed], dim=1)  ## batch * task_emb_dim+layer_emb_dim
+            layers.append(self.decoder(hidden_input))   ##  12层，每层对应batch * weight
         return layers
