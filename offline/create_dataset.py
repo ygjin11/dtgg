@@ -22,6 +22,7 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
     game = []
 
     game_num = len(games)
+    console.print(f'train {game_num} games at the same time')
     index = 0
 
     num_steps = num_steps * game_num
@@ -78,7 +79,6 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
                     done = True
             num_trajectories += (trajectories_per_buffer - trajectories_to_load)
             transitions_per_buffer[buffer_num] = i
-
         console.print(f"load obss length: {len(obss)}")
 
     actions = np.array(actions)

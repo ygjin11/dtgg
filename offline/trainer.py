@@ -72,7 +72,7 @@ class Trainer:
     def train(self):
         model, config = self.model, self.config
         raw_model = model.module if hasattr(self.model, "module") else model
-        optimizer = raw_model.configure_optimizers(config)
+        optimizer = raw_model.configure_optimizers(config, self.itype)
 
         def run_epoch(split, epoch_num=0):
             is_train = split == 'train'
@@ -129,7 +129,7 @@ class Trainer:
                         # report progress
                         pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
             
-            #@ raw trainer use condition information to train 
+            #@ condition trainer use condition information to train 
             else:
                 for it, (x, y, r, t, c) in pbar:
                     # place data on the correct device

@@ -6,14 +6,23 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-def load_guide(game):
+## load game description: language
+
+
+## load action description
+#@ action number
+#@ action sequence
+
+
+## load traj and language 
+def load_traj(game):
     #@ load traj
     instruct_dir = f'/home/Userlist/jinyg/dtmi/instruct/{game}/frame/'
     guide_loaded = []
     guide_dir = f'{instruct_dir}{0}/'
     for j in range(20):
-        guidedir_j = f'{guide_dir}{j}.png'
-        guide_loaded.append(get_vision_clip(guidedir_j))
+        guide_dir_j = f'{guide_dir}{j}.png'
+        guide_loaded.append(get_vision_clip(guide_dir_j))
     result = torch.cat(guide_loaded, dim=0).to(torch.float)
     return result
 
@@ -39,10 +48,10 @@ if __name__ == '__main__':
     
     console.log("load guide")
     game = 'Air_Raid'
-    guide_loaded = load_guide(game).reshape(1, 20, 512)
+    guide_loaded = load_traj(game).reshape(1, 20, 512)
     print(guide_loaded.shape)
 
     console.log("atttention seq to vec")
-    att_seqtovec = Attention_Seqtovec(512, 512, 4, 2).to(guide_loaded.device)
+    att_seqtovec = Attention_Seqtovec(512, 512, 2, 1).to(guide_loaded.device)
     res = att_seqtovec(guide_loaded)
     print(res.shape)

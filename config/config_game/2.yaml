@@ -1,0 +1,47 @@
+train:
+- Zaxxon 
+- QBert 
+- Wizard_Of_Wor 
+- Video_Pinball 
+- Venture 
+- Up_N_Down 
+- Tutankham 
+- Time_Pilot 
+- Star_Gunner 
+- Space_Invaders 
+
+eval: 
+# TRAINED
+  - name: Zaxxon
+    action_dim: 18
+  - name: QBert
+    action_dim: 6
+  - name: Wizard_Of_Wor 
+    action_dim: 10
+  - name: Video_Pinball 
+    action_dim: 9
+  - name: Venture
+    action_dim: 6
+  - name: Up_N_Down
+    action_dim: 6
+  - name: Tutankham 
+    action_dim: 8
+  - name: Time_Pilot  
+    action_dim: 10
+  - name: Star_Gunner
+    action_dim: 6
+  - name: Space_Invaders 
+    action_dim: 6
+# UNSEEN    
+  - name: Alien
+    action_dim: 18
+  - name: Air_Raid
+    action_dim: 6
+  - name: Breakout
+    action_dim: 4
+  - name: Pong
+    action_dim: 6
+  - name: Hero 
+    action_dim: 18
+
+  

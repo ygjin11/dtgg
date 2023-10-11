@@ -154,7 +154,17 @@ def get_segment_traj(obss, actions, rtg, num_segment):
         point_pair.append(pair)
         
     num_segment = len(point_pair)
+    if num_segment == 0:
+        for i in range(20):
+            i = i * 100
+            pair = []
+            pair.append(i)
+            pair.append(i+30)
+            point_pair.append(pair)
+        num_segment = len(point_pair)
+        
     random_pair = random.sample(point_pair, num_segment)
+
     for i in range(len(random_pair)):
         start = random_pair[i][0]
         end = random_pair[i][1]
@@ -244,7 +254,7 @@ if __name__ == '__main__':
         game = subfolder
         out_putdir = config['instruct_dir'] + game + '/'
 
-        num_steps = 500000
+        num_steps = 10000
         num_buffers = 50
         trajectories_per_buffer = 1
 
@@ -257,7 +267,9 @@ if __name__ == '__main__':
             if not os.path.exists(out_putdir):
                 os.makedirs(out_putdir)
             segment_traj, segment_action, segment_rtg  = get_segment_traj(obss, actions, rtg, num_segment)
+            console.log("save frame")
             get_video_frame(out_putdir, segment_traj)
+            console.log("save action and rtg")
             get_action_rtg(out_putdir, segment_action, segment_rtg)
 
 

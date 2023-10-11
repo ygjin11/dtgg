@@ -1,0 +1,1 @@
+Your goal is to change the color of all the cubes on the pyramid to the pyramid’s ‘destination’ color. To do this, you must hop on each cube on the pyramid one at a time while avoiding nasty creatures that lurk there. 

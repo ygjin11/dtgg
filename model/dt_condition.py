@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 import numpy as np
 '''our package'''
 from model.adapter_generators import ParameterGenerator
+from model.load_traj import Attention_Seqtovec
 
 class GELU(nn.Module):
     def forward(self, input):
@@ -20,6 +21,7 @@ class GPTConfig:
     attn_pdrop = 0.1
     adapter_norm_input = False
     adapter_dim = 64
+    att_input_dim = 512
     l_embed_dim = 128  ## layer embedding dim
     embed_dim = 128  ## multimodal embedding dim
     insruction_type = 'language'
@@ -184,7 +186,6 @@ class GPT_condition(nn.Module):
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         self.block_size = config.block_size
-        self.apply(self._init_weights)
 
         self.param_gen = ParameterGenerator(
             config, config.n_embd
@@ -193,9 +194,13 @@ class GPT_condition(nn.Module):
         ## instruction type
         self.instruction_type = config.instruction_type
 
+        ## traj to vector(512)
+        if self.instruction_type == 'trajectory':
+            self.trajtovector = Attention_Seqtovec(config.att_input_dim, config.embed_dim, 2, 1)
+
+        self.apply(self._init_weights)
 
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
-
 
         self.state_encoder = nn.Sequential(nn.Conv2d(4, 32, 8, stride=4, padding=0), nn.ReLU(),
                                  nn.Conv2d(32, 64, 4, stride=2, padding=0), nn.ReLU(),
@@ -219,7 +224,7 @@ class GPT_condition(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def configure_optimizers(self, train_config):
+    def configure_optimizers(self, train_config, itype):
         """
         This long function is unfortunately doing something very simple and is being very defensive:
         We are separating out all parameters of the model into two buckets: those that will experience
@@ -251,6 +256,10 @@ class GPT_condition(nn.Module):
         no_decay.add('pos_emb')
         no_decay.add('global_pos_emb')
 
+        ## weight_decay of trajtovector
+        if itype == 'trajectory':
+            decay.add('trajtovector.transformer.layers.0.self_attn.in_proj_weight')
+
         ## validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
@@ -264,6 +273,7 @@ class GPT_condition(nn.Module):
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
+
         optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
 
@@ -310,19 +320,21 @@ class GPT_condition(nn.Module):
         position_embeddings = torch.gather(all_global_pos_emb, 1, torch.repeat_interleave(timesteps, self.config.n_embd, dim=-1)) + self.pos_emb[:, :token_embeddings.shape[1], :]
 
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # > generate instruction
+        #@ generate instruction
         ## instruction type : language
         if self.instruction_type == 'language':
-            self.apply_params_to_adapters(
-                token_embeddings.size(0),
-                self.param_gen(instruction),
-            )
+            pass
         ## instruction type : trajectory
         if self.instruction_type == 'trajectory':
-            pass
+            instruction = self.trajtovector(instruction)
         ## instruction type : guide
         if self.instruction_type == 'guide':
             pass
+
+        self.apply_params_to_adapters(
+            token_embeddings.size(0),
+            self.param_gen(instruction),
+        )
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
         x = self.drop(token_embeddings + position_embeddings)
