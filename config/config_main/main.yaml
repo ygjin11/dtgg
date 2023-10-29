@@ -1,30 +1,40 @@
-action_space: 18
+action_space: 6
 annotate:
   game_annonate: Alien
   traj_num: 10
 dataset_dir: /home/Userlist/jinyg/DATA/
 eval:
-  att_input_dim: 512
   ckpt_eval: /home/Userlist/jinyg/dtmi/checkpoint/2023-09-27/0.45_trajectory_1.ckpt
   condition_dim: 512
-  device: '1'
+  condition_type: trajectory
+  enable_action: false
+  enable_instruct: false
+  enable_language: false
+  enable_retrieval: true
+  enable_trajectory: false
   eval_rtg: 100
-  instruction_type: trajectory
-game_list: '1'
+  game_list: '2'
+  max_timestep: 100 # decided by model 
+  context_length: 20
+  model_type: reward_conditioned
 instruct_dir: /home/Userlist/jinyg/dtmi/instruct/
-max_timestep: 24744
 seed: 123
 train:
-  att_input_dim: 512
   batch_size: 256
   ckpt_path: /home/Userlist/jinyg/dtmi/checkpoint/
   condition_dim: 512
-  context_length: 30
-  device: 1,2,3,4
+  condition_type: trajectory
+  context_length: 20
+  enable_action: false
+  enable_instruct: false
+  enable_language: false
+  enable_retrieval: true
+  enable_trajectory: true
   epochs: 20
-  instruction_type: trajectory
+  game_list: '1'
   model_type: reward_conditioned
   num_buffers: 50
-  num_steps: 50000
+  num_steps: 10000 # x*10k
   trajectories_per_buffer: 1
-
+  num_game_batch: 3
+  num_batch: 10

@@ -21,11 +21,14 @@ with open(config_path, 'r') as yaml_file:
     config = yaml.safe_load(yaml_file)
 os.environ["CUDA_VISIBLE_DEVICES"] = config['eval']['device']
 
-'''our package'''
-from tool.clip_extract_lang import get_language_clip
-from model.dt import GPT, GPTConfig
+#@ our package
+from model.dt import GPTConfig, GPT
 from model.dt_condition import GPTConfig_condition, GPT_condition 
-from model.load_traj import load_traj
+from offline.trainer import Trainer, TrainerConfig
+from model.load_guide import load_language
+from model.load_guide import load_action
+from model.load_guide import load_traj
+from model.load_guide import load_traj_5
 
 #! env
 class Env():
@@ -127,14 +130,14 @@ class Args:
         self.history_length = 4
 
 #! whole evaluation process 
-def interact(device, ret, game, seed, model, max_timestep, instruction_type, action_dim, instruction_embed=None):
+def interact(device, ret, game, seed, model, max_timestep, instruction_type, action_dim, condition=None):
     T_rewards = []
     done = True
     #@ evaluate 10 times each seed
     eval_num = 10
     for i in range(eval_num):
         if i % 2 == 0:
-            seed = seed + random.randint(0, 100)
+            seed = seed + 100
         args=Args(game.lower(), seed)
         env = Env(args)
         env.eval()
@@ -144,12 +147,9 @@ def interact(device, ret, game, seed, model, max_timestep, instruction_type, act
         rtgs = [ret]
 
         ## laod instruction
-        if instruction_type == 'language':
-            instruction = instruction_embed
-        elif instruction_type == 'trajectory':
-            instruction = instruction_embed
-        elif instruction_type == 'guide':
-            pass 
+        if condition:
+            pass
+
         
         ## first state is from env, first rtg is target return, and first timestep is 0
         if instruction_type == 'raw':
@@ -218,37 +218,51 @@ if __name__ == '__main__':
     config_path = parent_directory + '/config/config_main/main.yaml'
     with open(config_path, 'r') as yaml_file:
         config = yaml.safe_load(yaml_file)
-    seed = config['seed'] 
-    context_length = config['train']['context_length'] 
-    model_type = config['train']['model_type']
-    instruction_type = config['eval']['instruction_type']
+
+    context_length = config['eval']['context_length'] 
+    model_type = config['eval']['model_type']
     game_list = config['game_list']
     game_path = parent_directory + '/config/config_game/' + game_list + '.yaml'
     ckpt_eval = config['eval']['ckpt_eval']
-    max_timestep = config['max_timestep']
     action_space = config['action_space']
     eval_rtg = config['eval']['eval_rtg']
     condition_dim = config['eval']['condition_dim']
-    att_input_dim = config['eval']['att_input_dim']
     instruct_dir = config['instruct_dir']
     with open(game_path, 'r') as yaml_file:
         config_game = yaml.safe_load(yaml_file)
     games = config_game['eval']
 
-    if instruction_type == 'raw':
-        mconf = GPTConfig(action_space, context_length*3,
-                          n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep)
+    condition_type = config['eval']['condition_type']
+    enable_retrieval = config['eval']['enable_retrieval']
+    enable_instruct = config['eval']['enable_instruct']
+    enable_language = config['eval']['enable_language']
+    enable_trajectory = config['eval']['enable_trajectory']
+    enable_action = config['eval']['enable_action']
+
+    seed = config['seed'] 
+    max_timestep = config['eval']['max_timestep']
+
+    console.print(f'seed: {seed}')
+
+    if condition_type == 'raw':
+        mconf = GPTConfig(action_space, context_length*3,\
+                n_layer=6, n_head=8, n_embd=128,\
+                model_type=model_type, max_timestep=max_timestep)
         model = GPT(mconf)
         
-    elif instruction_type == 'language':
-        mconf = GPTConfig_condition(action_space, context_length*3,
-                n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep, embed_dim=condition_dim, instruction_type=instruction_type)
-        model = GPT_condition(mconf)
-
-    elif instruction_type == 'trajectory':
-        mconf = GPTConfig_condition(action_space, context_length*3,
-                n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep,\
-                embed_dim=condition_dim, instruction_type=instruction_type, att_input_dim=att_input_dim)
+    else:
+        console.print(f'condition - language: {enable_language}')
+        console.print(f'condition - trajectory: {enable_trajectory}')
+        console.print(f'condition - action: {enable_action}')
+        console.print(f'condition - instruct: {enable_instruct}')
+        console.print(f'condition - retrieval: {enable_retrieval}')
+        
+        mconf = GPTConfig_condition(action_space, action_space,
+        n_layer=6, n_head=8, n_embd=128, model_type=model_type, max_timestep=max_timestep,\
+        condition_dim=condition_dim, condition_type=condition_type,\
+        enable_retrieval=enable_retrieval, enable_language=enable_language,\
+        enable_trajectory=enable_trajectory, enable_action=enable_action, \
+        enable_instruct=enable_instruct) 
         model = GPT_condition(mconf)
 
     ## laod ckpt
@@ -265,28 +279,10 @@ if __name__ == '__main__':
         game = item['name']
         action_dim = item['action_dim']
         sum_retrun = 0
-        console.log(f'eval {item} {instruction_type}')
-        #@ load language, instruction and guide.
-        #@ at the same time, we use clip to extract features of these.
-        ## 1.load language: load language description of game such as 'control ship to attack'，
-        ## and use clip_text_encoder to extract features of this language description.
-        instruction_embed = None
-        if instruction_type == 'language':
-            dir = instruct_dir + game + '/language.txt'
-            with open(dir, 'r') as file:
-                Text = file.read()
-            instruction_embed = get_language_clip(Text).to(device)
-            console.log(f'laod condition')
-        ## 2.load trajectory：load one trajectory of game: frame_1,...,frame_n
-        if instruction_type == 'trajectory':
-            instruction_embed = load_traj(game).unsqueeze(0).to(device)
-            console.log(f'laod condition')
-        ## 3.load guide：load one instruction of game, consisting of
-        ## action description
-        ## frame_1,...,frame_n
-        ## instruction_1,...,instruction_n
-        if instruction_type == 'guide':
+        console.log(f'eval {item} {condition_type}')
+
+        if condition_type != 'raw':
             pass
-            console.log(f'laod condition')
-        interact(device ,eval_rtg, game, seed, model, max_timestep, instruction_type, action_dim, instruction_embed)
+
+        interact(device ,eval_rtg, game, seed, model, max_timestep, condition_type, action_dim, condition)
  

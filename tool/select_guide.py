@@ -127,15 +127,15 @@ if __name__ == '__main__':
     #@ test similarity
     console.log("calcualte relevance")
     rel = cal_game_rel(imgs_0, guide_loaded)
-    print(rel)
+    console.log(rel)
     rel = cal_game_rel(imgs_1, guide_loaded)
-    print(rel)
+    console.log(rel)
     rel = cal_game_rel(imgs_2, guide_loaded)
-    print(rel)
+    console.log(rel)
     rel = cal_game_rel(imgs_3, guide_loaded)
-    print(rel)
+    console.log(rel)
     rel = cal_game_rel(imgs_4, guide_loaded)
-    print(rel)
+    console.log(rel)
 
     #@ alpha = 0.9
     # # tensor([0.2834, 0.3420, 0.3018, 0.0408, 0.0318], device='cuda:0',

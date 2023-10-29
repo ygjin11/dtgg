@@ -1,0 +1,4 @@
+{
+    "number": 6,
+    "seq": {"0": "[noop]", "1": "[fire]", "2": "[right]", "3": "[left]", "4": "[righfire]", "5":"[leftfire]"}
+}

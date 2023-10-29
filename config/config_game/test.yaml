@@ -1,8 +1,0 @@
-train:
-- Air_Raid 
-eval: 
-  - name: Air_Raid
-    action_dim: 18
-
-
-  

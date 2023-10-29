@@ -4,8 +4,11 @@ import logging
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-logger = logging.getLogger(__name__)
+from rich.console import Console
+console = Console()
 import numpy as np
+import os
+import yaml
 
 class GELU(nn.Module):
     def forward(self, input):
@@ -122,7 +125,7 @@ class GPT(nn.Module):
         self.apply(self._init_weights)
 
 
-        logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
+        console.print(f"number of parameters: {sum(p.numel() for p in self.parameters())}")
 
 
         self.state_encoder = nn.Sequential(nn.Conv2d(4, 32, 8, stride=4, padding=0), nn.ReLU(),
@@ -147,7 +150,7 @@ class GPT(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def configure_optimizers(self, train_config):
+    def configure_optimizers(self, train_config, condition_type):
         """
         This long function is unfortunately doing something very simple and is being very defensive:
         We are separating out all parameters of the model into two buckets: those that will experience

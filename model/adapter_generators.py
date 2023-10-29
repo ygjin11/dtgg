@@ -56,7 +56,7 @@ class ParameterGenerator(nn.Module):
         self.config = config
         self.layer_embed = nn.Embedding(config.n_layer, config.l_embed_dim)
         self.decoder = SimpleGenerator(
-            config, config.embed_dim + config.l_embed_dim, hidden_size
+            config, config.condition_dim + config.l_embed_dim, hidden_size
         )
 
     def forward(self, hidden_inputs):

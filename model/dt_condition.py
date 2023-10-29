@@ -4,11 +4,15 @@ import logging
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-logger = logging.getLogger(__name__)
 import numpy as np
+import os
+import yaml
+from rich.console import Console
+console = Console()
 '''our package'''
 from model.adapter_generators import ParameterGenerator
-from model.load_traj import Attention_Seqtovec
+from model.adaptors_generators_moe import ParameterGenerator as ParameterGenerator_moe
+from model.load_guide import Attention_Seqtovec, MLP
 
 class GELU(nn.Module):
     def forward(self, input):
@@ -23,8 +27,13 @@ class GPTConfig:
     adapter_dim = 64
     att_input_dim = 512
     l_embed_dim = 128  ## layer embedding dim
-    embed_dim = 128  ## multimodal embedding dim
-    insruction_type = 'language'
+    condition_dim = 128  ## multimodal embedding dim
+    condition_type = 'language'
+    enable_retrieval = False 
+    enable_language = False
+    enable_trajectory = False 
+    enable_action = False
+    enable_instruct = False 
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -74,8 +83,9 @@ class AdapterLayer(nn.Module):
 
     def forward(self, x):
         if self.adapter_down_weight is not None:
-            x = (x @ self.adapter_down_weight) + self.adapter_down_bias.unsqueeze(1)  ## x:batch * length * hid_dim  @  weight:batch * hid_dim * adapter_dim
-                                                                                      ##  =  batch * length * adapter_dim
+            x = (x @ self.adapter_down_weight) + self.adapter_down_bias.unsqueeze(1)  
+            ## x:batch * length * hid_dim  @  weight:batch * hid_dim * adapter_dim
+            ##  =  batch * length * adapter_dim
             x = self.hidden_act(x)
             x = (x @ self.adapter_up_weight) + self.adapter_up_bias.unsqueeze(1)
         else:
@@ -187,20 +197,43 @@ class GPT_condition(nn.Module):
 
         self.block_size = config.block_size
 
-        self.param_gen = ParameterGenerator(
-            config, config.n_embd
-        )
-
         ## instruction type
-        self.instruction_type = config.instruction_type
+        self.condition_type = config.condition_type
+        self.enable_language = config.enable_language
+        self.enable_trajectory = config.enable_trajectory
+        self.enable_action = config.enable_action
+        self.enable_instruct = config.enable_instruct
+        self.enable_retrieval = config.enable_retrieval
 
-        ## traj to vector(512)
-        if self.instruction_type == 'trajectory':
-            self.trajtovector = Attention_Seqtovec(config.att_input_dim, config.embed_dim, 2, 1)
+        if self.enable_retrieval:
+            self.param_gen = ParameterGenerator_moe(
+                config, config.n_embd
+            )
+        else:
+            self.param_gen = ParameterGenerator(
+                config, config.n_embd
+            )
+
+        if self.condition_type == "language":
+            pass
+        elif self.condition_type == "trajectory":
+            self.trajtovector = Attention_Seqtovec(512, config.condition_dim, 2, 1)
+        elif self.condition_type == "guide":
+
+            if self.enable_instruct:
+                self.traj_insttovector = Attention_Seqtovec(1024, config.condition_dim, 2, 1) 
+                if self.enable_retrieval:
+                    self.trajtovector = Attention_Seqtovec(512, config.condition_dim, 2, 1) 
+            else:
+                self.trajtovector = Attention_Seqtovec(512, config.condition_dim, 2, 1)        
+
+            self.embedding_act_num = nn.Embedding(18, 256) 
+            self.act_seqtovec = Attention_Seqtovec(512, 256, 2, 1)
+            self.fusion = MLP(512, 1024, 512)
 
         self.apply(self._init_weights)
 
-        logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
+        console.print(f"number of parameters: {sum(p.numel() for p in self.parameters())}")
 
         self.state_encoder = nn.Sequential(nn.Conv2d(4, 32, 8, stride=4, padding=0), nn.ReLU(),
                                  nn.Conv2d(32, 64, 4, stride=2, padding=0), nn.ReLU(),
@@ -224,7 +257,7 @@ class GPT_condition(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def configure_optimizers(self, train_config, itype):
+    def configure_optimizers(self, train_config, condition_type):
         """
         This long function is unfortunately doing something very simple and is being very defensive:
         We are separating out all parameters of the model into two buckets: those that will experience
@@ -257,20 +290,23 @@ class GPT_condition(nn.Module):
         no_decay.add('global_pos_emb')
 
         ## weight_decay of trajtovector
-        if itype == 'trajectory':
+        if condition_type == 'trajectory':
             decay.add('trajtovector.transformer.layers.0.self_attn.in_proj_weight')
 
         ## validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
         union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
+        assert len(inter_params) == 0, "parameters %s\
+               made it into both decay/no_decay sets!" % (str(inter_params), )
+        assert len(param_dict.keys() - union_params) == 0, \
+               "parameters %s were not separated into either decay/no_decay set!" \
+               % (str(param_dict.keys() - union_params), )
 
         ## create the pytorch optimizer object
         optim_groups = [
-            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
+            {"params": [param_dict[pn] for pn in sorted(list(decay))], \
+             "weight_decay": train_config.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
 
@@ -278,64 +314,99 @@ class GPT_condition(nn.Module):
         return optimizer
 
     ## state, action, and return
-    def forward(self, states, actions, targets=None, rtgs=None, timesteps=None, instruction=None):
+    def forward(self, states, actions, targets=None, rtgs=None, timesteps=None, \
+                lang=None, traj=None, a_t=None, a=None, i=None, s_embed=None):
         # states: (batch, block_size, 4*84*84)
         # actions: (batch, block_size, 1)
         # targets: (batch, block_size, 1)
         # rtgs: (batch, block_size, 1)
         # timesteps: (batch, 1, 1)
-        # instuction：(batch, x)
+        # instuction：
         self.clear_adapters()
-        state_embeddings = self.state_encoder(states.reshape(-1, 4, 84, 84).type(torch.float32).contiguous()) # (batch * block_size, n_embd)
-        state_embeddings = state_embeddings.reshape(states.shape[0], states.shape[1], self.config.n_embd) # (batch, block_size, n_embd)
+        state_embeddings = self.state_encoder\
+            (states.reshape(-1, 4, 84, 84).type(torch.float32).contiguous()) 
+            # (batch * block_size, n_embd)
+        state_embeddings = state_embeddings.reshape\
+            (states.shape[0], states.shape[1], self.config.n_embd) 
+        # (batch, block_size, n_embd)
 
         if actions is not None and self.model_type == 'reward_conditioned':
             rtg_embeddings = self.ret_emb(rtgs.type(torch.float32))
-            action_embeddings = self.action_embeddings(actions.type(torch.long).squeeze(-1)) # (batch, block_size, n_embd)
+            action_embeddings = self.action_embeddings(actions.type(torch.long).squeeze(-1)) 
+            # (batch, block_size, n_embd)
 
-            token_embeddings = torch.zeros((states.shape[0], states.shape[1]*3 - int(targets is None), self.config.n_embd), dtype=torch.float32, device=state_embeddings.device)
+            token_embeddings = torch.zeros((states.shape[0], states.shape[1]*3 - \
+                                            int(targets is None), self.config.n_embd),\
+                                            dtype=torch.float32, device=state_embeddings.device)
             token_embeddings[:,::3,:] = rtg_embeddings
             token_embeddings[:,1::3,:] = state_embeddings
             token_embeddings[:,2::3,:] = action_embeddings[:,-states.shape[1] + int(targets is None):,:]
             # token_embeddings=[r_hat,s,a,r,s,a,....,]
-        elif actions is None and self.model_type == 'reward_conditioned': # only happens at very first timestep of evaluation
+        elif actions is None and self.model_type == 'reward_conditioned': 
+            # only happens at very first timestep of evaluation
             rtg_embeddings = self.ret_emb(rtgs.type(torch.float32))
 
-            token_embeddings = torch.zeros((states.shape[0], states.shape[1]*2, self.config.n_embd), dtype=torch.float32, device=state_embeddings.device)
+            token_embeddings = torch.zeros((states.shape[0], states.shape[1]*2, \
+                                            self.config.n_embd), dtype=torch.float32, \
+                                                device=state_embeddings.device)
             token_embeddings[:,::2,:] = rtg_embeddings # really just [:,0,:]
             token_embeddings[:,1::2,:] = state_embeddings # really just [:,1,:]
         elif actions is not None and self.model_type == 'naive':
-            action_embeddings = self.action_embeddings(actions.type(torch.long).squeeze(-1)) # (batch, block_size, n_embd)
+            action_embeddings = self.action_embeddings(actions.type(torch.long).squeeze(-1)) 
+            # (batch, block_size, n_embd)
 
-            token_embeddings = torch.zeros((states.shape[0], states.shape[1]*2 - int(targets is None), self.config.n_embd), dtype=torch.float32, device=state_embeddings.device)
+            token_embeddings = torch.zeros((states.shape[0], states.shape[1]*2 - int(targets is None),\
+                                            self.config.n_embd), dtype=torch.float32,\
+                                            device=state_embeddings.device)
             token_embeddings[:,::2,:] = state_embeddings
             token_embeddings[:,1::2,:] = action_embeddings[:,-states.shape[1] + int(targets is None):,:]
-        elif actions is None and self.model_type == 'naive': # only happens at very first timestep of evaluation
+        elif actions is None and self.model_type == 'naive': 
+            # only happens at very first timestep of evaluation
             token_embeddings = state_embeddings
         else:
             raise NotImplementedError()
 
         batch_size = states.shape[0]
-        all_global_pos_emb = torch.repeat_interleave(self.global_pos_emb, batch_size, dim=0) # batch_size, traj_length, n_embd
-        position_embeddings = torch.gather(all_global_pos_emb, 1, torch.repeat_interleave(timesteps, self.config.n_embd, dim=-1)) + self.pos_emb[:, :token_embeddings.shape[1], :]
+        all_global_pos_emb = torch.repeat_interleave(self.global_pos_emb, batch_size, dim=0) 
+        # batch_size, traj_length, n_embd
+        position_embeddings = torch.gather(all_global_pos_emb, 1,\
+                                        torch.repeat_interleave(timesteps, self.config.n_embd, dim=-1)) \
+                                        + self.pos_emb[:, :token_embeddings.shape[1], :]
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        #@ generate condition
+        if self.condition_type == 'language':
+            self.apply_params_to_adapters(
+                token_embeddings.size(0),
+                self.param_gen(lang),
+            )
 
-        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        #@ generate instruction
-        ## instruction type : language
-        if self.instruction_type == 'language':
-            pass
-        ## instruction type : trajectory
-        if self.instruction_type == 'trajectory':
-            instruction = self.trajtovector(instruction)
-        ## instruction type : guide
-        if self.instruction_type == 'guide':
-            pass
+        elif self.condition_type == 'trajectory':
 
-        self.apply_params_to_adapters(
-            token_embeddings.size(0),
-            self.param_gen(instruction),
-        )
-        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+            if self.enable_retrieval:
+                ## calculate similarity: s_embed and traj_embeds
+                traj_embeds = torch.cat([self.trajtovector(traj[:, i]).unsqueeze(1) \
+                                         for i in range(5)], dim=1)
+                s_embed = self.trajtovector(s_embed).unsqueeze(2)
+                # traj_embeds: b * 5 * 512
+                # s_embed: b * 512 * 1
+                similarity = nn.Softmax(dim=-1)(torch.bmm(traj_embeds, s_embed).permute(0, 2, 1))
+
+                self.apply_params_to_adapters(
+                    token_embeddings.size(0),
+                    self.param_gen(traj_embeds, similarity),
+                )
+
+            else:
+                traj_embed = self.trajtovector(traj)
+                self.apply_params_to_adapters(
+                    token_embeddings.size(0),
+                    self.param_gen(traj_embed),
+                )
+
+        elif self.condition_type == 'guide':
+            pass
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
 
         x = self.drop(token_embeddings + position_embeddings)
         x = self.blocks(x)
