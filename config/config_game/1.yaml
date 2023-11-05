@@ -8,6 +8,7 @@ train:
 - Time_Pilot 
 - Star_Gunner 
 - Space_Invaders 
+- Video_Pinball
 
 eval: 
 # TRAINED
@@ -20,7 +21,7 @@ eval:
   - name: Video_Pinball 
     action_dim: 9
   - name: Venture
-    action_dim: 6
+    action_dim: 18
   - name: Up_N_Down
     action_dim: 6
   - name: Tutankham 
@@ -28,7 +29,7 @@ eval:
   - name: Time_Pilot  
     action_dim: 10
   - name: Star_Gunner
-    action_dim: 6
+    action_dim: 18
   - name: Space_Invaders 
     action_dim: 6
 # UNSEEN    

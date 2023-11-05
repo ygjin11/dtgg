@@ -33,7 +33,7 @@ def create_dataset(num_buffers, num_steps, games, data_dir_prefix, trajectories_
         i = transitions_per_buffer[buffer_num]
 
         Game = games[index]
-        console.log(f'get dataset of {Game}')
+        console.log(f'get dataset of {Game} {buffer_num}')
         index = index + 1
         if index == game_num:
             index = 0

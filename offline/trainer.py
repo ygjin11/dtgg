@@ -65,12 +65,6 @@ class Trainer:
         ## take over whatever gpus are on the system
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = torch.nn.DataParallel(self.model).to(self.device)
-        
-        ## load clip model
-        clip_model, clip_process = clip.load("ViT-B/32",)
-        self.clip_model = clip_model.to(self.device)
-
-        del clip_model, clip_process
 
     def save_checkpoint(self, loss):
         ## DataParallel wrappers keep raw model object in .module attribute
@@ -176,15 +170,7 @@ class Trainer:
                     a = a.to(self.device)
                     i = i.to(self.device)
                     s_embed = s_embed.to(self.device)
-
-                    if s_embed.size(1) != 1:
-                            batch_size, num_frames, channels, height, width = s_embed.size()
-                            s_embed = s_embed.view(-1, channels, height, width)
-                            with torch.no_grad():
-                                s_embed = self.clip_model.encode_image(s_embed)
-                            s_embed = s_embed.view(batch_size, num_frames, -1).to(torch.float)
                     
-
                     # forward the model
                     with torch.set_grad_enabled(is_train):
                         logits, loss = model(x, y, y, r, t, lang, traj, a_t, a, i, s_embed) 
@@ -229,5 +215,4 @@ class Trainer:
             run_epoch('train')
             test_loss = run_epoch('test')
             console.log(f"epoch test_loss: {test_loss}")
-            if epoch % 2 == 0:
-                self.save_checkpoint(test_loss)
+            self.save_checkpoint(test_loss)

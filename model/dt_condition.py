@@ -214,6 +214,8 @@ class GPT_condition(nn.Module):
                 config, config.n_embd
             )
 
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        #@ init guide network
         if self.condition_type == "language":
             pass
         elif self.condition_type == "trajectory":
@@ -227,9 +229,10 @@ class GPT_condition(nn.Module):
             else:
                 self.trajtovector = Attention_Seqtovec(512, config.condition_dim, 2, 1)        
 
-            self.embedding_act_num = nn.Embedding(18, 256) 
+            self.embedding_num = nn.Embedding(18, 256) 
             self.act_seqtovec = Attention_Seqtovec(512, 256, 2, 1)
             self.fusion = MLP(512, 1024, 512)
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
         self.apply(self._init_weights)
 
@@ -292,7 +295,12 @@ class GPT_condition(nn.Module):
         ## weight_decay of trajtovector
         if condition_type == 'trajectory':
             decay.add('trajtovector.transformer.layers.0.self_attn.in_proj_weight')
-
+        
+        if condition_type == 'guide':
+            if not self.enable_instruct:
+                decay.add('trajtovector.transformer.layers.0.self_attn.in_proj_weight')
+                decay.add('act_seqtovec.transformer.layers.0.self_attn.in_proj_weight')
+                decay.add('fusion.weight')
         ## validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
@@ -404,7 +412,32 @@ class GPT_condition(nn.Module):
                 )
 
         elif self.condition_type == 'guide':
-            pass
+            traj_embeds = torch.cat([self.trajtovector(traj[:, i]).unsqueeze(1) \
+                                        for i in range(5)], dim=1)
+            s_embed = self.trajtovector(s_embed).unsqueeze(2)
+            # traj_embeds: b * 5 * 512
+            # s_embed: b * 512 * 1
+            similarity = nn.Softmax(dim=-1)(torch.bmm(traj_embeds, s_embed).permute(0, 2, 1))
+            if self.enable_instruct:
+                pass
+            else:
+                # traj_embeds
+                # action
+                # langugae
+                act_num =  self.embedding_num(a_t)
+                act = self.act_seqtovec(a)
+                # cond_1: bt * 512
+                cond_1 = self.fusion(lang, act_num, act, traj_embeds[:, 0]).unsqueeze(1)  
+                cond_2 = self.fusion(lang, act_num, act, traj_embeds[:, 1]).unsqueeze(1) 
+                cond_3 = self.fusion(lang, act_num, act, traj_embeds[:, 2]).unsqueeze(1) 
+                cond_4 = self.fusion(lang, act_num, act, traj_embeds[:, 3]).unsqueeze(1) 
+                cond_5 = self.fusion(lang, act_num, act, traj_embeds[:, 4]).unsqueeze(1) 
+                cond = torch.cat([cond_1, cond_2, cond_3, cond_4, cond_5], dim=1)
+
+                self.apply_params_to_adapters(
+                    token_embeddings.size(0),
+                    self.param_gen(cond, similarity),
+                )
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 

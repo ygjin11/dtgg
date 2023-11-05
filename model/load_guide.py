@@ -40,14 +40,17 @@ def load_action(game, model, device):
     input_num = action['number']
     act_seq = action['seq']
     #@ action number
-    act_num = torch.tensor(input_num).to(device)
+    act_num = torch.tensor(input_num-1).to(device)
     #@ action sequence
     act = []
     for key, value in act_seq.items():
         act_i = get_language_clip(model, value, device)
         act.append(act_i)
     act = torch.cat(act, dim=0).to(torch.float)
-
+    if input_num < 18:
+        anothing = get_language_clip(model, '', device)  
+        for i in range(18-input_num):   
+            act = torch.cat([act, anothing], dim=0).to(torch.float)
     return act_num, act
 
 ## load game example - trajectory & instruction
@@ -123,6 +126,7 @@ if __name__ == '__main__':
     console.log("load guide - action")
     act_num, act = load_action(game, model, device)
     act_num, act = act_num.unsqueeze(0), act.unsqueeze(0)
+    print(act_num)
     console.print(f"act_num, act shape : {act_num.shape},{act.shape}")
     
     console.log("load guide - lanauge")

@@ -30,6 +30,7 @@ from rich.console import Console
 console = Console()
 from multiprocessing import Pool
 import sys
+from tqdm import tqdm,trange
 
 #@ our dataset(Dateset)
 class StateActionReturnDataset(Dataset):
@@ -94,44 +95,28 @@ class StateActionReturnDataset(Dataset):
                     console.log("load condition - 1 instruct.")
             
             if self.enable_retrieval:   
-                # console.log(f"process state using clip - preprocess.")
-                # states_down = np.array(self.data[0:len(self.data)]).\
-                #     transpose(0, 2, 3, 1)[:, :, :, 0] # n 224 224
-                # preprocessed_states = torch.cat([self.clip_process(Image.fromarray(np.uint8(states_down[i]))).unsqueeze(0)\
-                #                          for i in range(len(self.data))], dim=0) # n 3 224 224
-                # print(preprocessed_states.shape)
-
-                # console.log(f"process state using clip - clip extract.")
-                # states_embed = self.clip_model.encode_image(preprocessed_states) # n 512
-                # del preprocessed_states
-                # # print(states_embed.shape)
-
-                def process_states_in_batches(data, clip_model, clip_process, batch_size):
+                def process_states_in_batches(data, clip_model, clip_process, batch_size, batch_epoch):
                     num_samples = len(data)
-                    processed_states_list = []
+                    processed_states = None
 
-                    for i in range(0, batch_size):
-                        print(i)
-                        if i + batch_size > num_samples:
-                            batch_size = num_samples - i
-                        batch_data = data[i:i + batch_size]
-                        print(f"Processing batch {i // batch_size + 1}")
-
+                    for i in trange(batch_epoch):
+                        actual_batch_size = min(batch_size, num_samples - i*batch_size)
                         # Process the batch of states
-                        states_down = np.array(batch_data).transpose(0, 2, 3, 1)[:, :, :, 0]  # n 224 224
-                        preprocessed_states = torch.cat([clip_process(Image.fromarray(np.uint8(states_down[j]))).unsqueeze(0) for j in range(len(batch_data))], dim=0)  # n 3 224 224
-
+                        states_down = np.array(data[i:i + actual_batch_size], dtype=np.float32).transpose(0, 2, 3, 1)[:, :, :, 0]
+                        preprocessed_states = torch.cat([clip_process(Image.fromarray(np.uint8(state))).unsqueeze(0) for state in states_down], dim=0)
                         # Encode the batch of preprocessed states
-                        states_embed = clip_model.encode_image(preprocessed_states)  # n 512
-                        processed_states_list.append(states_embed)
-
-                    processed_states = torch.cat(processed_states_list, dim=0)
+                        with torch.no_grad():
+                            states_embed = clip_model.encode_image(preprocessed_states)
+                        if processed_states is None:
+                            processed_states = states_embed
+                        else:
+                            processed_states = torch.cat((processed_states, states_embed), dim=0)
                     return processed_states
-                
-                console.log(f"process state using clips.")
-                batch_size = len(self.data) // 1000 + 1
-                processed_states = process_states_in_batches(self.data, self.clip_model, self.clip_process, batch_size)
-                print(processed_states.shape)
+    
+                batch_size = 20000
+                batch_epoch = len(self.data) //batch_size + (len(self.data) % batch_size != 0)
+                print(f"process state using CLIP(batch_size: {batch_size}, batch_epoch: {batch_epoch})")
+                self.processed_states = process_states_in_batches(self.data, self.clip_model, self.clip_process, batch_size, batch_epoch)
 
     def __len__(self):
         return len(self.data) - self.block_size
@@ -175,10 +160,8 @@ class StateActionReturnDataset(Dataset):
             if self.enable_instruct:
                 pass
             if self.enable_retrieval:
-                states_2 = np.array(self.data[idx:done_idx]).transpose(0, 2, 3, 1)[:, :, :, 0]  
-                s_embed = torch.cat([self.clip_process(Image.fromarray(np.uint8(states_2[i]))).unsqueeze(0)\
-                                         for i in range(block_size)], dim=0)
-                del states_2
+                 s_embed = self.processed_states[idx:done_idx]
+
             return states, actions, rtgs, timesteps, language, trajectory, \
                    act_num, act, instruct, s_embed
 
@@ -233,29 +216,25 @@ if __name__ == '__main__':
     # obss, actions, returns, done_idxs, rtgs, timesteps, game\
     #       = create_dataset(num_buffers, num_steps, all_games,\
     #                        data_dir_prefix, trajectories_per_buffer)
-    console.log(f'loading data...')
+    console.log(f'load data...')
     obss, actions, returns, done_idxs, rtgs, timesteps, game = [], [], [], [], [], [], []
     #@ mp to load dataset
-    num_batch = config['train']['num_batch']
     num_game_batch = config['train']['num_game_batch']
 
     def load_game_data(game):
-        return create_dataset(num_buffers, num_steps/num_batch, [game], data_dir_prefix, trajectories_per_buffer)
+        return create_dataset(num_buffers, num_steps, [game], data_dir_prefix, trajectories_per_buffer)
     
     list_game = []
-    for i in range(num_game_batch):
-        list_game.append(all_games[i*num_game_batch:i*num_game_batch+num_game_batch])
+    for i in range(int(len(all_games) / num_game_batch) + 1):
+        if i*num_game_batch < len(all_games):
+            list_game.append(all_games[i*num_game_batch:min(i*num_game_batch+num_game_batch,len(all_games))])
 
-    index = 0
+    console.print(f"game batch: {list_game}")
     # all games is seperate into ...
-    for i in range(num_batch*num_game_batch):
-        all_games_batch = list_game[index]
+    for i in range(len(list_game)):
+        all_games_batch = list_game[i]
+        console.print(f'load game batch {all_games_batch}')
         pool = Pool(processes=len(all_games_batch))
-
-        index += 1
-        if index == num_game_batch:
-            index = 0
-
         game_data = pool.map(load_game_data, all_games_batch)
         pool.close()
         pool.join()
@@ -269,10 +248,9 @@ if __name__ == '__main__':
             game.extend(data[6])
         
         console.print(f'len of dataset: {len(obss)}')
-        if len(obss) > num_steps * len(all_games):
-            break
+
  
-    console.log(f'generating dataset...')
+    console.log(f'generat dataset...')
     dataset = StateActionReturnDataset(obss, context_length*3, actions, done_idxs, rtgs, timesteps,\
                                       game, all_games, condition_type, enable_retrieval, enable_language,\
                                       enable_trajectory, enable_action, enable_instruct)  
@@ -281,7 +259,7 @@ if __name__ == '__main__':
     test_size = dataset_size - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-    console.log(f'training-initialize...')  
+    console.log(f'train-initialize...')  
     ## DT
     if condition_type == 'raw':
         mconf = GPTConfig(dataset.vocab_size, dataset.block_size,\
@@ -309,7 +287,7 @@ if __name__ == '__main__':
                       enable_language=enable_language, enable_trajectory=enable_trajectory,\
                       enable_action=enable_action, enable_instruct=enable_instruct) 
 
-    console.log(f'training...') 
+    console.log(f'train...') 
     trainer.train()
 
 

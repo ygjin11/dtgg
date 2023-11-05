@@ -1,0 +1,12 @@
+{
+    "number": 8,
+    "seq": {"0": "[noop]", 
+            "1": "[up]", 
+            "2": "[right]", 
+            "3": "[left]", 
+            "4": "[down]", 
+            "5":"[upfire]", 
+            "6":"[rightfire]", 
+            "7":"[leftfire]"
+            }
+}
